@@ -140,6 +140,151 @@ def _patch_split_video_vae_keys() -> None:
     blocks.VAE_ENCODER_COMFY_KEYS_FILTER = encoder_ops
 
 
+def _patch_gemma_llm_key_ops() -> None:
+    """Load Gemma text encoder files with Comfy and upstream key layouts.
+
+    The default LTX key map only accepts ``language_model.model.*`` and
+    ``vision_tower.*`` sources. Comfy-Org/ltx-2 publishes the render Gemma as
+    ``model.*`` plus ``vision_model.*`` and stores many Linear weights as
+    FP8 + scalar ``.weight_scale``. This patch maps both layouts and folds FP8
+    scales into bf16 tensors before they are assigned to the standard
+    transformers Gemma modules.
+    """
+    import sys
+
+    import torch
+
+    from ltx_core.loader.sd_ops import KeyValueOperationResult
+    import ltx_core.block_streaming.builder as streaming_builder
+    import ltx_core.loader.sft_loader as sft_loader
+    import ltx_core.text_encoders.gemma as gemma_pkg
+    import ltx_core.text_encoders.gemma.encoders.encoder_configurator as gemma_config
+
+    if getattr(gemma_config, "_cinematic_console_gemma_ops_patch", False):
+        return
+
+    transformers_v5 = bool(getattr(gemma_config, "_TRANSFORMERS_V5", False))
+    fp8_dtypes = tuple(
+        dtype
+        for dtype in (
+            getattr(torch, "float8_e4m3fn", None),
+            getattr(torch, "float8_e5m2", None),
+        )
+        if dtype is not None
+    )
+
+    class CinematicGemmaLLMKeyOps:
+        name = f"CINEMATIC_GEMMA_LLM_KEY_OPS_v5_{int(transformers_v5)}"
+        _cinematic_gemma_ops = True
+
+        def __init__(self) -> None:
+            self._scale_by_weight_key: dict[str, torch.Tensor] = {}
+            self._prepared_paths: tuple[str, ...] = ()
+
+        def _map_key(self, key: str) -> str | None:
+            if key == "__metadata__" or key == "spiece_model":
+                return None
+            already_mapped = (
+                "model.model.language_model.",
+                "model.model.vision_tower.",
+                "model.model.multi_modal_projector.",
+                "model.lm_head.",
+            )
+            if key.startswith(already_mapped):
+                return key
+            if key.startswith("language_model.model."):
+                return "model.model.language_model." + key[len("language_model.model.") :]
+            if key.startswith("language_model."):
+                return "model.model.language_model." + key[len("language_model.") :]
+            if key.startswith("vision_tower.vision_model."):
+                rest = key[len("vision_tower.vision_model.") :]
+                prefix = "model.model.vision_tower." if transformers_v5 else "model.model.vision_tower.vision_model."
+                return prefix + rest
+            if key.startswith("vision_tower."):
+                return "model.model.vision_tower." + key[len("vision_tower.") :]
+            if key.startswith("vision_model."):
+                rest = key[len("vision_model.") :]
+                prefix = "model.model.vision_tower." if transformers_v5 else "model.model.vision_tower.vision_model."
+                return prefix + rest
+            if key.startswith("multi_modal_projector."):
+                return "model.model.multi_modal_projector." + key[len("multi_modal_projector.") :]
+            if key.startswith("model.vision_tower."):
+                return "model.model.vision_tower." + key[len("model.vision_tower.") :]
+            if key.startswith("model.multi_modal_projector."):
+                return "model.model.multi_modal_projector." + key[len("model.multi_modal_projector.") :]
+            if key.startswith("model."):
+                return "model.model.language_model." + key[len("model.") :]
+            if key.startswith("lm_head."):
+                return "model." + key
+            return None
+
+        def prepare_scales(self, paths: str | tuple[str, ...] | list[str]) -> None:
+            import safetensors
+
+            if isinstance(paths, str):
+                path_tuple = (paths,)
+            else:
+                path_tuple = tuple(str(path) for path in paths)
+            if path_tuple == self._prepared_paths:
+                return
+
+            scales: dict[str, torch.Tensor] = {}
+            for path in path_tuple:
+                with safetensors.safe_open(path, framework="pt", device="cpu") as handle:
+                    for raw_key in handle.keys():  # noqa: SIM118
+                        if not raw_key.endswith(".weight_scale"):
+                            continue
+                        mapped = self._map_key(raw_key)
+                        if mapped is None:
+                            continue
+                        scales[mapped.removesuffix("_scale")] = handle.get_tensor(raw_key)
+            self._scale_by_weight_key = scales
+            self._prepared_paths = path_tuple
+
+        def apply_to_key(self, key: str) -> str | None:
+            if key.endswith(".weight_scale"):
+                return None
+            return self._map_key(key)
+
+        def apply_to_key_value(self, key: str, value: torch.Tensor) -> list[KeyValueOperationResult]:
+            out = value
+            if fp8_dtypes and value.dtype in fp8_dtypes:
+                scale = self._scale_by_weight_key.get(key)
+                if scale is None:
+                    raise RuntimeError(f"Missing Gemma FP8 scale tensor for {key}")
+                out = (value.to(torch.float32) * scale.to(device=value.device, dtype=torch.float32)).to(torch.bfloat16)
+            results = [KeyValueOperationResult(key, out)]
+            if key == "model.model.language_model.embed_tokens.weight":
+                results.append(KeyValueOperationResult("model.lm_head.weight", out))
+            return results
+
+    ops = CinematicGemmaLLMKeyOps()
+    gemma_config.GEMMA_LLM_KEY_OPS = ops
+    gemma_pkg.GEMMA_LLM_KEY_OPS = ops
+    blocks_module = sys.modules.get("ltx_pipelines.utils.blocks")
+    if blocks_module is not None:
+        blocks_module.GEMMA_LLM_KEY_OPS = ops
+
+    original_load = sft_loader.SafetensorsStateDictLoader.load
+
+    def load_with_gemma_scales(self, path, sd_ops=None, device=None):  # type: ignore[no-untyped-def]
+        if getattr(sd_ops, "_cinematic_gemma_ops", False):
+            sd_ops.prepare_scales(path)
+        return original_load(self, path, sd_ops, device)
+
+    sft_loader.SafetensorsStateDictLoader.load = load_with_gemma_scales
+
+    original_streaming_build = streaming_builder.StreamingModelBuilder.build
+
+    def streaming_build_with_gemma_scales(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        if getattr(self.model_sd_ops, "_cinematic_gemma_ops", False):
+            self.model_sd_ops.prepare_scales(self.model_path)
+        return original_streaming_build(self, *args, **kwargs)
+
+    streaming_builder.StreamingModelBuilder.build = streaming_build_with_gemma_scales
+    gemma_config._cinematic_console_gemma_ops_patch = True
+
+
 def _patch_gemma_text_encoder_meta_device() -> None:
     """Keep text-only Gemma encoding off the meta device.
 
@@ -273,6 +418,7 @@ def _run(args: argparse.Namespace) -> None:
 def _run_inference(args: argparse.Namespace) -> None:
     logging.basicConfig(level=logging.INFO)
     _patch_split_checkpoint_loading()
+    _patch_gemma_llm_key_ops()
     _patch_gemma_text_encoder_meta_device()
     from ltx_core.loader import LTXV_LORA_COMFY_RENAMING_MAP, LoraPathStrengthAndSDOps
     from ltx_core.model.video_vae import TilingConfig, get_video_chunks_number

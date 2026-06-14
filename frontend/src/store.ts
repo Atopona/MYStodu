@@ -40,7 +40,10 @@ export interface ConsoleState {
     mmprojs: string[];
     suggested: boolean;
     source?: string;
-    mock_reason?: string;
+    model_root?: string;
+    required?: any[];
+    missing_required?: any[];
+    ready?: boolean;
   };
   settings: Settings | null;
   // director inputs
@@ -135,7 +138,7 @@ export const useStore = create<ConsoleState>((set, get) => ({
   shotTypes: ["CINEMATIC"],
   resolutions: [{ label: "1280 x 720", width: 1280, height: 720 }],
   models: null,
-  llmModels: { ggufs: [], mmprojs: [], suggested: true },
+  llmModels: { ggufs: [], mmprojs: [], suggested: false },
   settings: null,
 
   mode: "i2v",
@@ -603,10 +606,10 @@ export const useStore = create<ConsoleState>((set, get) => ({
       const st = await api.status();
       set({ llm: st.llm, comfy: st.comfy });
       if (st.comfy.state === "running") {
-        get().toast("ComfyUI 已连接", "ok");
+        get().toast("外部渲染服务已连接", "ok");
         await get().refreshModels();
       } else {
-        get().toast(`ComfyUI 不可达：${st.comfy.url}（Mock 模式可用）`, "warn");
+        get().toast(`外部渲染服务不可达：${st.comfy.url}（本地离线流程可用）`, "warn");
       }
     } catch (e: any) {
       get().toast(e.message, "err");

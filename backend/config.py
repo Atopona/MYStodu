@@ -8,12 +8,13 @@ UPLOAD_DIR = os.path.join(ROOT, "uploads")
 OUTPUT_DIR = os.path.join(ROOT, "outputs")
 THUMB_DIR = os.path.join(OUTPUT_DIR, "thumbs")
 LLM_MODEL_DIR = os.path.join(ROOT, "models", "llm")
+COMFY_MODEL_DIR = os.path.join(ROOT, "models", "comfyui")
 TOOLS_DIR = os.path.join(ROOT, "tools")
 WORKFLOW_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "workflows")
 FRONTEND_DIST = os.path.join(ROOT, "frontend", "dist")
 DB_PATH = os.path.join(DATA_DIR, "console.db")
 
-for _d in (DATA_DIR, UPLOAD_DIR, OUTPUT_DIR, THUMB_DIR, LLM_MODEL_DIR, TOOLS_DIR):
+for _d in (DATA_DIR, UPLOAD_DIR, OUTPUT_DIR, THUMB_DIR, LLM_MODEL_DIR, COMFY_MODEL_DIR, TOOLS_DIR):
     os.makedirs(_d, exist_ok=True)
 
 DEFAULT_SETTINGS = {

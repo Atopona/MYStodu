@@ -12,7 +12,7 @@ from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSock
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import comfy_client, config, db, jobs, llm_client, llm_embedded, llm_manager, mock, prompt_engine
+from . import comfy_client, config, db, jobs, llm_client, llm_embedded, llm_manager, local_models, mock, prompt_engine
 from .schemas import GenerateRequest, LlmStartRequest, RefineRequest, RenderRequest, SettingsPatch
 
 # --------------------------------------------------------------- WS hub
@@ -248,16 +248,7 @@ async def put_ui_state(payload: dict):
 
 @app.get("/api/llm/models")
 async def api_llm_models():
-    scanned = llm_manager.scan_llm_models()
-    suggested = not scanned["ggufs"]
-    if suggested:
-        return {
-            **mock.MOCK_LLM_SUGGESTIONS,
-            "suggested": True,
-            "source": "suggested",
-            "mock_reason": "models/llm 里没有 GGUF；这里显示的是推荐文件名，不代表已下载。",
-        }
-    return {**scanned, "suggested": False, "source": "local"}
+    return local_models.scan_llm_models()
 
 
 @app.post("/api/llm/start")
@@ -308,26 +299,8 @@ async def api_llm_stop():
 
 @app.get("/api/models")
 async def api_models():
-    """Model lists for the PIPELINE panel — real ComfyUI scan or mock zoo."""
-    settings = db.get_settings()
-    mock_mode = settings.get("mock_comfy", "auto")
-    if mock_mode != "on":
-        try:
-            timeout = 20.0 if mock_mode == "off" else 2.0
-            if mock_mode == "auto" and not await comfy_client.ping(settings["comfy_url"], timeout=0.75):
-                raise comfy_client.ComfyError("ComfyUI ping failed")
-            info = await comfy_client.object_info(settings["comfy_url"], timeout=timeout)
-            lists = comfy_client.extract_model_lists(info)
-            if any(lists.values()):
-                return {**lists, "source": "comfyui"}
-        except Exception:  # noqa: BLE001
-            if mock_mode == "off":
-                raise HTTPException(502, f"ComfyUI 不可达：{settings['comfy_url']} — 无法扫描模型列表")
-    return {
-        **mock.MOCK_COMFY_MODELS,
-        "source": "mock",
-        "mock_reason": "ComfyUI 未连接；这是离线演示用的示例模型名，不代表本机已下载这些模型。",
-    }
+    """Model lists for the PIPELINE panel, scanned from local project model dirs."""
+    return local_models.scan_render_models()
 
 
 # --------------------------------------------------------------- upload
@@ -507,7 +480,7 @@ async def api_render(req: RenderRequest):
     mock_setting = settings.get("mock_comfy", "auto")
     comfy_up = await comfy_client.ping(settings["comfy_url"])
     if mock_setting == "off" and not comfy_up:
-        raise HTTPException(502, f"ComfyUI 不可达：{settings['comfy_url']} — 请检查地址或启动 ComfyUI（设置里可改为 Mock）")
+        raise HTTPException(502, f"外部渲染服务不可达：{settings['comfy_url']} — 请检查地址，或把渲染模式设为 Mock/auto")
     use_mock = mock_setting == "on" or (mock_setting == "auto" and not comfy_up)
 
     image_path = None

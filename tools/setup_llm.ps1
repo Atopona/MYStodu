@@ -99,7 +99,7 @@ function Resolve-HfSelection([string]$RepoId) {
     $RepoId = $env:CC_LLM_REPO
   }
   if (-not $RepoId) {
-    $RepoId = "SulphurAI/Sulphur-2-Prompt-Enhancer-GGUF"
+    $RepoId = "SulphurAI/Sulphur-2-base"
   }
 
   Write-Step "scanning Hugging Face repo $RepoId"
@@ -114,12 +114,22 @@ function Resolve-HfSelection([string]$RepoId) {
   }
   $files = @($model.siblings | ForEach-Object { $_.rfilename }) | Where-Object { $_ -match "\.gguf$" }
   $main = $files |
-    Where-Object { $_ -notmatch "mmproj" -and $_ -match "(Q4_K_M|q4_k_m|Q5_K_M|q5_k_m|f16|F16|bf16|BF16)" } |
+    Where-Object { $_ -notmatch "mmproj" -and $_ -match "prompt_enhancer_uncensored" } |
     Select-Object -First 1
+  if (-not $main) {
+    $main = $files |
+      Where-Object { $_ -notmatch "mmproj" -and $_ -match "(Q4_K_M|q4_k_m|Q5_K_M|q5_k_m|q8_0|Q8_0|f16|F16|bf16|BF16)" } |
+      Select-Object -First 1
+  }
   if (-not $main) {
     $main = $files | Where-Object { $_ -notmatch "mmproj" } | Select-Object -First 1
   }
-  $proj = $files | Where-Object { $_ -match "mmproj" } | Select-Object -First 1
+  $proj = $files |
+    Where-Object { $_ -match "mmproj" -and $_ -match "prompt_enhancer_uncensored" } |
+    Select-Object -First 1
+  if (-not $proj) {
+    $proj = $files | Where-Object { $_ -match "mmproj" } | Select-Object -First 1
+  }
   if (-not $main -or -not $proj) {
     throw "Repo $RepoId does not expose both a main GGUF and an mmproj GGUF. Pass exact URLs instead."
   }

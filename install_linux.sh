@@ -7,10 +7,11 @@ set -euo pipefail
 # - creates .venv and installs backend dependencies
 # - installs llama-cpp-python for in-process GGUF inference (no external LLM service)
 # - installs/builds the React frontend when npm is available
-# - downloads the Prompt Enhancer GGUF/mmproj and the LTX/10Eros/Sulphur model repos
+# - downloads only the required Prompt Enhancer and LTX model files
 # - writes default settings for embedded LLM mode
 #
-# Large downloads are intentional. Set SKIP_MODEL_DOWNLOAD=1 to install code only.
+# The model downloads are still large, but this script downloads exact files,
+# not full Hugging Face repositories. Set SKIP_MODEL_DOWNLOAD=1 to install code only.
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV="${VENV:-$ROOT/.venv}"
@@ -25,9 +26,15 @@ PROMPT_REPO="${PROMPT_REPO:-SulphurAI/Sulphur-2-base}"
 PROMPT_GGUF="${PROMPT_GGUF:-prompt_enhancer_uncensored/prompt_enhancer_uncensored-q8_0.gguf}"
 PROMPT_MMPROJ="${PROMPT_MMPROJ:-prompt_enhancer_uncensored/mmproj-prompt_enhancer_uncensored.gguf}"
 BASE_REPO="${BASE_REPO:-Lightricks/LTX-2.3}"
+UPSCALER_MODEL="${UPSCALER_MODEL:-ltx-2.3-spatial-upscaler-x2-1.1.safetensors}"
 I2V_REPO="${I2V_REPO:-TenStrip/LTX2.3-10Eros}"
+I2V_CHECKPOINT="${I2V_CHECKPOINT:-10Eros_v1-fp8mixed_learned.safetensors}"
 T2V_REPO="${T2V_REPO:-SulphurAI/Sulphur-2-base}"
+T2V_CHECKPOINT="${T2V_CHECKPOINT:-sulphur_dev_fp8mixed.safetensors}"
 DISTIL_REPO="${DISTIL_REPO:-TenStrip/LTX2.3_Distilled_Lora_1.1_Experiments}"
+DISTIL_LORA="${DISTIL_LORA:-ltx-2.3-22b-distilled-lora-1.1_fro90_ceil72_condsafe.safetensors}"
+AUDIO_VAE_REPO="${AUDIO_VAE_REPO:-novoluz/ltx2_audio_vae_bf16}"
+AUDIO_VAE_MODEL="${AUDIO_VAE_MODEL:-LTX2_audio_vae_bf16.safetensors}"
 
 SKIP_MODEL_DOWNLOAD="${SKIP_MODEL_DOWNLOAD:-0}"
 INSTALL_COMFYUI="${INSTALL_COMFYUI:-0}"
@@ -92,36 +99,27 @@ if [ "$INSTALL_COMFYUI" = "1" ]; then
 fi
 
 if [ "$SKIP_MODEL_DOWNLOAD" != "1" ]; then
-  log "downloading all configured model repos"
-  export PROMPT_REPO PROMPT_GGUF PROMPT_MMPROJ BASE_REPO I2V_REPO T2V_REPO DISTIL_REPO
-  "$PY" - "$LLM_DIR" "$COMFY_MODEL_ROOT" <<'PY'
+  log "downloading required model files only"
+  export PROMPT_REPO PROMPT_GGUF PROMPT_MMPROJ BASE_REPO UPSCALER_MODEL I2V_REPO I2V_CHECKPOINT T2V_REPO T2V_CHECKPOINT DISTIL_REPO DISTIL_LORA AUDIO_VAE_REPO AUDIO_VAE_MODEL
+  "$PY" - "$ROOT" "$LLM_DIR" "$COMFY_MODEL_ROOT" <<'PY'
 import os
 import shutil
 import sys
 from pathlib import Path
 
-from huggingface_hub import hf_hub_download, snapshot_download
+from huggingface_hub import hf_hub_download
 
-llm_dir = Path(sys.argv[1])
-comfy_root = Path(sys.argv[2])
+root = Path(sys.argv[1])
+llm_dir = Path(sys.argv[2])
+comfy_root = Path(sys.argv[3])
+sys.path.insert(0, str(root))
+
+from backend import db, local_models, model_manifest
+
 token = os.environ.get("HF_TOKEN") or None
 
-repos = {
-    "prompt": os.environ.get("PROMPT_REPO", "SulphurAI/Sulphur-2-base"),
-    "base": os.environ.get("BASE_REPO", "Lightricks/LTX-2.3"),
-    "i2v": os.environ.get("I2V_REPO", "TenStrip/LTX2.3-10Eros"),
-    "t2v": os.environ.get("T2V_REPO", "SulphurAI/Sulphur-2-base"),
-    "distil": os.environ.get("DISTIL_REPO", "TenStrip/LTX2.3_Distilled_Lora_1.1_Experiments"),
-}
-prompt_files = [
-    os.environ.get("PROMPT_GGUF", "prompt_enhancer_uncensored/prompt_enhancer_uncensored-q8_0.gguf"),
-    os.environ.get("PROMPT_MMPROJ", "prompt_enhancer_uncensored/mmproj-prompt_enhancer_uncensored.gguf"),
-]
-
-def safe_name(repo: str) -> str:
-    return repo.replace("/", "__")
-
-def download_prompt_file(repo: str, filename: str, dest: Path) -> Path:
+def download_file(repo: str, filename: str, dest: Path) -> Path:
+    dest.mkdir(parents=True, exist_ok=True)
     target = dest / Path(filename).name
     if target.exists():
         print(f"[install_linux] using existing {target}")
@@ -138,7 +136,7 @@ def download_prompt_file(repo: str, filename: str, dest: Path) -> Path:
         raise SystemExit(
             f"Failed to download {repo}/{filename}: {exc}\n"
             "If the repo is gated/private, set HF_TOKEN. "
-            "If the path changed, override PROMPT_REPO/PROMPT_GGUF/PROMPT_MMPROJ."
+            "If the path changed, override the matching *_REPO or *_MODEL variable."
         )
     if downloaded.resolve() != target.resolve():
         shutil.move(str(downloaded), target)
@@ -151,45 +149,15 @@ def download_prompt_file(repo: str, filename: str, dest: Path) -> Path:
             parent = parent.parent
     return target
 
-def snap(repo: str, dest: Path, patterns=None, ignore=None):
-    print(f"[install_linux] snapshot {repo} -> {dest}")
-    try:
-        snapshot_download(
-            repo_id=repo,
-            local_dir=str(dest),
-            allow_patterns=patterns,
-            ignore_patterns=ignore,
-            token=token,
-        )
-    except Exception as exc:
-        raise SystemExit(
-            f"Failed to download {repo}: {exc}\n"
-            "If the repo is gated/private, set HF_TOKEN. "
-            "If the repo id changed, override PROMPT_REPO/BASE_REPO/I2V_REPO/T2V_REPO/DISTIL_REPO."
-        )
+for item in model_manifest.required_llm_files():
+    download_file(item["repo"], item["filename"], llm_dir)
 
-for filename in prompt_files:
-    download_prompt_file(repos["prompt"], filename, llm_dir)
-
-model_patterns = [
-    "*.safetensors", "*.gguf", "*.json", "*.txt", "*.yaml", "*.yml", "*.md",
-    "*.model", "*.bin", "*.pt", "*.pth",
-]
-snap(repos["base"], comfy_root / safe_name(repos["base"]), model_patterns)
-snap(repos["i2v"], comfy_root / safe_name(repos["i2v"]), model_patterns)
-snap(
-    repos["t2v"],
-    comfy_root / safe_name(repos["t2v"]),
-    model_patterns,
-    ignore=["prompt_enhancer/*", "prompt_enhancer_uncensored/*"],
-)
-snap(repos["distil"], comfy_root / safe_name(repos["distil"]), model_patterns)
+for item in model_manifest.required_render_files():
+    download_file(item["repo"], item["filename"], comfy_root / item["category"])
 
 ggufs = sorted(p for p in llm_dir.glob("*.gguf") if "mmproj" not in p.name.lower())
 mmprojs = sorted(p for p in llm_dir.glob("*.gguf") if "mmproj" in p.name.lower())
 if ggufs:
-    from backend import db
-
     db.update_settings({
         "llm_mode": "embedded",
         "llm_gguf": ggufs[0].name,
@@ -202,6 +170,16 @@ if ggufs:
         print(f"[install_linux] mmproj default: {mmprojs[0].name}")
 else:
     print("[install_linux] no GGUF found in prompt repo download")
+
+render_scan = local_models.scan_render_models()
+llm_scan = local_models.scan_llm_models()
+missing = llm_scan["missing_required"] + render_scan["missing_required"]
+if missing:
+    print("[install_linux] missing required model files:")
+    for item in missing:
+        print(f"  - {item['label']}: {item['name']} ({item['url']})")
+    raise SystemExit(1)
+print("[install_linux] required model file check OK")
 PY
 else
   warn "SKIP_MODEL_DOWNLOAD=1, skipped model downloads"

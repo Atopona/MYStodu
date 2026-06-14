@@ -92,6 +92,7 @@ export default function PipelinePanel() {
   const m = s.models;
   const p = s.pipeline;
   const conflict = s.distilConflict();
+  const missing = m?.missing_required || [];
 
   if (!m) {
     return (
@@ -121,13 +122,22 @@ export default function PipelinePanel() {
     <div className="h-full overflow-y-auto px-3 py-3 space-y-4">
       <SectionTitle
         label="Pipeline / 管线"
-        hint={m.source === "mock" ? "示例列表 · 未下载" : "真实模型 · object_info"}
+        hint="models/comfyui 本地扫描"
       />
 
-      {m.source === "mock" && (
+      {missing.length > 0 && (
         <div className="border border-amber/50 bg-amber/10 rounded-sm p-2 text-nano leading-4 text-amber">
-          {m.mock_reason ||
-            "当前未连接 ComfyUI，下面是离线演示用的示例模型名，不代表本机已下载。"}
+          <div className="font-bold tracking-[0.16em] uppercase mb-1">
+            缺少必要模型 · {missing.length}
+          </div>
+          {missing.slice(0, 5).map((it) => (
+            <div key={it.key} className="truncate" title={`${it.repo}/${it.filename}`}>
+              {it.name}
+            </div>
+          ))}
+          <div className="text-dim/90 mt-1 truncate" title={m.model_root || ""}>
+            扫描目录：{m.model_root || "models/comfyui"}
+          </div>
         </div>
       )}
 
@@ -247,11 +257,6 @@ export default function PipelinePanel() {
             </div>
           </div>
         ))}
-        {m.source === "mock" && (
-          <div className="text-nano text-dim/70 leading-4 pt-1">
-            上方列表是 Mock 示例。连接 ComfyUI 或运行 Linux 安装脚本下载模型后，才会显示真实模型目录。
-          </div>
-        )}
       </div>
     </div>
   );

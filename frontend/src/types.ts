@@ -31,6 +31,16 @@ export interface Pipeline {
   loras: LoraItem[];
 }
 
+export interface RequiredModelFile {
+  key: string;
+  label: string;
+  category: string;
+  repo: string;
+  filename: string;
+  name: string;
+  url: string;
+}
+
 export interface ModelLists {
   text_encoders: string[];
   text_projections: string[];
@@ -40,7 +50,10 @@ export interface ModelLists {
   checkpoints: string[];
   loras: string[];
   source?: string;
-  mock_reason?: string;
+  model_root?: string;
+  required?: RequiredModelFile[];
+  missing_required?: RequiredModelFile[];
+  ready?: boolean;
 }
 
 export interface Resolution {

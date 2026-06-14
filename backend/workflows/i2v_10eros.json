@@ -1,27 +1,22 @@
 {
   "1": {
     "class_type": "CheckpointLoaderSimple",
-    "inputs": { "ckpt_name": "LTX2.3-10Eros_bf16.safetensors" },
+    "inputs": { "ckpt_name": "10Eros_v1-fp8mixed_learned.safetensors" },
     "_meta": { "title": "Checkpoint (incl. video VAE)" }
-  },
-  "2": {
-    "class_type": "CLIPLoader",
-    "inputs": { "clip_name": "gemma_3_12b_it_fp8_scaled.safetensors", "type": "ltxv" },
-    "_meta": { "title": "Text Encoder (gemma)" }
   },
   "4": {
     "class_type": "VAELoader",
-    "inputs": { "vae_name": "LTX23_audio_vae_bf16.safetensors" },
+    "inputs": { "vae_name": "LTX2_audio_vae_bf16.safetensors" },
     "_meta": { "title": "Audio VAE" }
   },
   "6": {
     "class_type": "CLIPTextEncode",
-    "inputs": { "text": "", "clip": ["2", 0] },
+    "inputs": { "text": "", "clip": ["1", 1] },
     "_meta": { "title": "Positive Prompt" }
   },
   "7": {
     "class_type": "CLIPTextEncode",
-    "inputs": { "text": "blurry, low quality, watermark", "clip": ["2", 0] },
+    "inputs": { "text": "blurry, low quality, watermark", "clip": ["1", 1] },
     "_meta": { "title": "Negative Prompt" }
   },
   "8": {
@@ -58,7 +53,7 @@
     "class_type": "LoraLoaderModelOnly",
     "inputs": {
       "model": ["1", 0],
-      "lora_name": "ltx-2.3-22b-distilled-lora-384-1.1_cond_safe.safetensors",
+      "lora_name": "ltx-2.3-22b-distilled-lora-1.1_fro90_ceil72_condsafe.safetensors",
       "strength_model": 1.0
     },
     "_meta": { "title": "FIRST STAGE DISTIL" }
@@ -102,7 +97,7 @@
     "class_type": "LoraLoaderModelOnly",
     "inputs": {
       "model": ["1", 0],
-      "lora_name": "ltx-2.3-22b-distilled-lora-384-1.1_cond_safe.safetensors",
+      "lora_name": "ltx-2.3-22b-distilled-lora-1.1_fro90_ceil72_condsafe.safetensors",
       "strength_model": 1.0
     },
     "_meta": { "title": "SECOND STAGE DISTIL" }

@@ -17,7 +17,7 @@ export default function TopBar() {
 
   const llmState =
     s.llm.state === "running" ? "ok" : s.llm.state === "starting" ? "warn" : "err";
-  const comfyState = s.comfy.state === "running" ? "ok" : "err";
+  const comfyState = s.comfy.state === "running" ? "ok" : s.comfy.mock ? "warn" : "err";
   const mockActive = !!(s.llm.mock || s.comfy.mock);
 
   return (
@@ -56,10 +56,10 @@ export default function TopBar() {
         </div>
         {mockActive && (
           <span
-            title="LLM/ComfyUI 不可达时自动启用 Mock 离线演示模式"
+            title="本地模型或外部渲染服务不可用时，内置离线流程仍可端到端运行"
             className="text-nano font-bold tracking-[0.18em] px-1.5 py-[2px] rounded-sm border border-amber/60 text-amber bg-amber/10"
           >
-            MOCK / 离线
+            LOCAL / 离线
           </span>
         )}
       </div>
@@ -67,7 +67,7 @@ export default function TopBar() {
       {/* right: status lights + settings */}
       <div className="flex items-center gap-1">
         <StatusDot state={llmState} label="LLM" onClick={() => s.reconnectLlm()} />
-        <StatusDot state={comfyState} label="COMFYUI" onClick={() => s.reconnectComfy()} />
+        <StatusDot state={comfyState} label="RENDER" onClick={() => s.reconnectComfy()} />
         <button
           type="button"
           title="设置"

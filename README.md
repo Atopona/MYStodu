@@ -1,6 +1,6 @@
 # Cinematic Console LD
 
-Cinematic Console LD is a local WebUI for LTX 2.3 video generation. It runs a FastAPI backend and a Vite/React control surface at `http://127.0.0.1:7860`, with mock LLM and mock ComfyUI modes so the whole flow can be tested on a clean machine. The UI is bilingual English/Chinese for the main workflow controls.
+Cinematic Console LD is a local WebUI for LTX 2.3 video generation. It runs a FastAPI backend and a Vite/React control surface at `http://127.0.0.1:7860`, with embedded LLM support and local Mock rendering so the whole flow can be tested on a clean machine. The UI is bilingual English/Chinese for the main workflow controls.
 
 ## Quick Start
 
@@ -23,7 +23,7 @@ bash install_linux.sh
 bash start_linux.sh
 ```
 
-`install_linux.sh` installs the embedded LLM runtime (`llama-cpp-python`), builds the frontend when `npm` is available, and downloads the configured GGUF/mmproj plus LTX/10Eros/Sulphur model repositories. The current Windows workspace does not need to run it unless you intentionally want to download those large models here.
+`install_linux.sh` installs the embedded LLM runtime (`llama-cpp-python`), builds the frontend when `npm` is available, and downloads only the exact GGUF/mmproj plus LTX/10Eros/Sulphur files required by the default workflows. The current Windows workspace does not need to run it unless you intentionally want to download those large files here.
 
 Linux daily start:
 
@@ -69,7 +69,8 @@ Quick Tunnel URLs are temporary. For production or a stable custom hostname, use
 - `backend/llm_embedded.py`: preferred in-process llama.cpp runtime via `llama-cpp-python`; this loads GGUF inside the backend process and does not require an external LLM service.
 - `backend/llm_manager.py`: compatibility fallback for a project-local `llama-server` subprocess.
 - `backend/llm_client.py`: OpenAI-compatible chat completions, including base64 `image_url` input.
-- `backend/comfy_client.py`: ComfyUI `/object_info`, `/prompt`, `/ws`, `/history`, upload and download helpers.
+- `backend/local_models.py`: direct local model scanning for `models/llm/` and `models/comfyui/`.
+- `backend/comfy_client.py`: optional ComfyUI `/prompt`, `/ws`, `/history`, upload and download helpers for real external rendering.
 - `backend/jobs.py`: one-at-a-time render queue, WebSocket progress, mock and real render paths.
 - `backend/db.py`: SQLite settings and render history in `data/console.db`.
 - `backend/workflows/`: API-format ComfyUI templates plus node mapping.
@@ -88,9 +89,9 @@ Mock mode is the default fallback when LLM or ComfyUI are unreachable. In the UI
 
 The mock renderer uses `ffmpeg` through `imageio-ffmpeg` when system ffmpeg is unavailable.
 
-### Why Model Names Appear Before Downloads
+### Local Model Detection
 
-If ComfyUI is not connected, the Pipeline panel shows a clearly marked **Mock / 示例列表**. These names come from `backend/mock.py` and are placeholders so the UI can run end-to-end without ComfyUI or downloaded checkpoints. They do **not** mean the files already exist locally. When ComfyUI is connected, `/api/models` uses ComfyUI `/object_info` and replaces the placeholders with real model files.
+The Pipeline panel and LLM selector scan local disk directly. They show only files that actually exist under `models/comfyui/` and `models/llm/`. If required files are missing, the UI lists the missing filenames instead of showing placeholder model names.
 
 ## Embedded LLM And Prompt Enhancer Setup
 
@@ -112,18 +113,18 @@ COMFY_MODEL_ROOT=/mnt/models/comfyui bash install_linux.sh
 DISTIL_REPO=TenStrip/LTX2.3_Distilled_Lora_1.1_Experiments bash install_linux.sh
 ```
 
-The script downloads the Prompt Enhancer GGUF/mmproj to `models/llm/`, downloads the LTX/10Eros/Sulphur model repos under `models/comfyui/` by default, and writes `llm_mode=embedded` into `data/console.db`.
+The script downloads exact required files, not full model repositories. Prompt Enhancer files go to `models/llm/`; render model files go to `models/comfyui/checkpoints/`, `models/comfyui/upscale_models/`, `models/comfyui/vae/`, and `models/comfyui/loras/`. It also writes `llm_mode=embedded` into `data/console.db`.
 
 Verified default Hugging Face sources:
 
 ```text
-Prompt repo:     SulphurAI/Sulphur-2-base
-Prompt GGUF:     prompt_enhancer_uncensored/prompt_enhancer_uncensored-q8_0.gguf
-Prompt mmproj:   prompt_enhancer_uncensored/mmproj-prompt_enhancer_uncensored.gguf
-Base LTX repo:   Lightricks/LTX-2.3
-I2V checkpoint:  TenStrip/LTX2.3-10Eros
-T2V checkpoint:  SulphurAI/Sulphur-2-base
-Distill LoRA:    TenStrip/LTX2.3_Distilled_Lora_1.1_Experiments
+LLM GGUF:        SulphurAI/Sulphur-2-base/prompt_enhancer_uncensored/prompt_enhancer_uncensored-q8_0.gguf
+LLM mmproj:      SulphurAI/Sulphur-2-base/prompt_enhancer_uncensored/mmproj-prompt_enhancer_uncensored.gguf
+I2V checkpoint:  TenStrip/LTX2.3-10Eros/10Eros_v1-fp8mixed_learned.safetensors
+T2V checkpoint:  SulphurAI/Sulphur-2-base/sulphur_dev_fp8mixed.safetensors
+Spatial upscale: Lightricks/LTX-2.3/ltx-2.3-spatial-upscaler-x2-1.1.safetensors
+Audio VAE:       novoluz/ltx2_audio_vae_bf16/LTX2_audio_vae_bf16.safetensors
+Distill LoRA:    TenStrip/LTX2.3_Distilled_Lora_1.1_Experiments/ltx-2.3-22b-distilled-lora-1.1_fro90_ceil72_condsafe.safetensors
 ```
 
 If you prefer the non-uncensored Prompt Enhancer variant, override:
@@ -164,9 +165,9 @@ The intended default model is the SulphurAI Prompt Enhancer GGUF plus its matchi
 
 External OpenAI-compatible endpoints are kept only for old/debug configurations and are not the normal product path.
 
-## ComfyUI And LTX 2.3 Models
+## Render Models
 
-ComfyUI is optional. Without ComfyUI, the project still works in Mock render mode: upload image, generate/refine prompts, simulate progress, produce placeholder MP4s, and reuse history.
+External ComfyUI is optional. Without it, the project still works in local Mock render mode: upload image, generate/refine prompts, simulate progress, produce placeholder MP4s, and reuse history. Model detection does not require ComfyUI; `/api/models` scans `models/comfyui/` directly.
 
 For real LTX rendering, set the ComfyUI URL in Settings, default:
 
@@ -174,16 +175,17 @@ For real LTX rendering, set the ComfyUI URL in Settings, default:
 http://127.0.0.1:8188
 ```
 
-Install the LTX 2.3 ecosystem in your ComfyUI model folders:
+The default workflow templates require only these render-side files:
 
-- Base pipeline: `Lightricks/LTX-2.3` components, including Gemma text encoder, text projection, spatial upscaler, audio VAE, and video VAE.
-- I2V checkpoint: `TenStrip/LTX2.3-10Eros`, with `TenStrip/10S-Comfy-nodes` and the related 10Eros workflows.
-- T2V checkpoint: `SulphurAI/Sulphur-2-base`, fp8mixed or bf16 dev.
-- Distill LoRA: use a cond_safe variant from `LTX2.3_Distilled_Lora_1.1_Experiments` when stacking as LoRA.
+- `checkpoints/10Eros_v1-fp8mixed_learned.safetensors`
+- `checkpoints/sulphur_dev_fp8mixed.safetensors`
+- `upscale_models/ltx-2.3-spatial-upscaler-x2-1.1.safetensors`
+- `vae/LTX2_audio_vae_bf16.safetensors`
+- `loras/ltx-2.3-22b-distilled-lora-1.1_fro90_ceil72_condsafe.safetensors`
 
 Important: do not stack a distill LoRA on top of a complete distilled checkpoint. The UI and backend validate this and will show a conflict error.
 
-On Linux, `install_linux.sh` can download these repos under `models/comfyui/`. You can then symlink or copy the files into your ComfyUI model folders, or set `COMFY_MODEL_ROOT` to a shared model storage path before running the script.
+On Linux, `install_linux.sh` downloads only those files. You can set `COMFY_MODEL_ROOT` to a shared model storage path before running the script.
 
 ## Workflow Templates
 
@@ -216,8 +218,8 @@ The history modal can play finished renders, inspect prompt snapshots, reuse par
 ## Troubleshooting
 
 - LLM light red: in embedded mode, run `install_linux.sh` or install `llama-cpp-python`, verify GGUF/mmproj paths in Settings, then click `load / restart llm`.
-- Pipeline shows models before download: this is the Mock example list. It is labeled in the UI and is replaced by real `/object_info` model files once ComfyUI is connected.
-- ComfyUI light red: start ComfyUI and check the URL if you want real rendering. Mock mode still allows full UI testing without ComfyUI.
+- Pipeline lists are empty: the app scanned `models/comfyui/` and did not find local render models. Run `bash install_linux.sh` or place the required files under the category folders listed above.
+- Render status is yellow/red: local Mock render still allows full UI testing. Configure an external ComfyUI URL only if you want real LTX rendering through ComfyUI.
 - VRAM/OOM: set `decode tile` to `512`, lower resolution, or use fp8/quantized model variants.
 - Frontend missing: run `npm install` and `npm run build` inside `frontend/`, or rerun `start.bat`.
 - Gated Hugging Face models: set `HF_TOKEN` before running `install_linux.sh` or `setup_llm.bat`.

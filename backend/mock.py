@@ -30,63 +30,6 @@ def find_ffmpeg() -> Optional[str]:
         return None
 
 
-# ----------------------------------------------------------- mock model zoo
-
-MOCK_COMFY_MODELS = {
-    "text_encoders": [
-        "gemma_3_12b_it_fp8_scaled.safetensors",
-        "gemma_3_12b_it_bf16.safetensors",
-        "t5xxl_fp16.safetensors",
-    ],
-    "text_projections": [
-        "ltx-2.3_text_projection_bf16.safetensors",
-        "ltx-2.3_text_projection_fp8.safetensors",
-    ],
-    "upscalers": [
-        "ltx-2.3-spatial-upscaler-x2-1.1.safetensors",
-        "ltx-2.3-spatial-upscaler-x2-1.0.safetensors",
-        "ltxv-spatial-upscaler-0.9.7.safetensors",
-    ],
-    "audio_vaes": [
-        "LTX23_audio_vae_bf16.safetensors",
-        "LTX23_audio_vae_fp8.safetensors",
-    ],
-    "preview_vaes": [
-        "taedhz2_1.safetensors",
-        "taehv_v1.safetensors",
-    ],
-    "checkpoints": [
-        "10eros+sulphurexperimental0.25_str.safetensors",
-        "LTX2.3-10Eros_bf16.safetensors",
-        "LTX2.3-10Eros_fp8_mixed_learned.safetensors",
-        "sulphur-2-base_fp8mixed.safetensors",
-        "sulphur-2-base_bf16_dev.safetensors",
-        "ltx-2.3-22b-distilled_FULL_bf16.safetensors",
-        "ltx-2.3-dev_bf16.safetensors",
-    ],
-    "loras": [
-        "ltx-2.3-22b-distilled-lora-384-1.1_cond_safe.safetensors",
-        "ltx-2.3-22b-distilled-lora-384-1.1.safetensors",
-        "sulphur-2_distill_lora_v1_cond_safe.safetensors",
-        "ltx23_camera_static_v1.safetensors",
-        "ltx23_camera_dolly_in_v1.safetensors",
-        "ltx23_camera_dolly_out_v1.safetensors",
-        "ltx23_handheld_organic_v1.safetensors",
-        "10eros_detail_boost_v2.safetensors",
-    ],
-}
-
-MOCK_LLM_SUGGESTIONS = {
-    "ggufs": [
-        "sulphur-prompt-enhancer-9b-Q4_K_M.gguf",
-        "gemma-3-12b-it-Q4_K_M.gguf",
-    ],
-    "mmprojs": [
-        "sulphur-prompt-enhancer-mmproj-f16.gguf",
-        "mmproj-gemma-3-12b-it-f16.gguf",
-    ],
-}
-
 # ------------------------------------------------------------ mock prompts
 
 _SPACE_BEATS = [

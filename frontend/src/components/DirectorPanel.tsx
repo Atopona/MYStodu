@@ -120,6 +120,7 @@ export default function DirectorPanel() {
   const frames = snapFrames(s.duration, s.fps);
   const ggufs = s.llmModels.ggufs;
   const mmprojs = s.llmModels.mmprojs;
+  const missingLlm = s.llmModels.missing_required || [];
 
   return (
     <div className="h-full overflow-y-auto px-3 py-3 space-y-4">
@@ -136,12 +137,21 @@ export default function DirectorPanel() {
       <div className="space-y-1.5">
         <SectionTitle
           label="LLM Model / 提示词模型"
-          hint={s.llmModels.suggested ? "推荐文件名 · 未下载" : "models/llm 本地文件"}
+          hint="models/llm 本地扫描"
         />
-        {s.llmModels.suggested && (
+        {missingLlm.length > 0 && (
           <div className="border border-amber/50 bg-amber/10 rounded-sm p-2 text-nano leading-4 text-amber">
-            {s.llmModels.mock_reason ||
-              "这里是推荐 GGUF/mmproj 文件名，不代表本机已下载。Linux 可运行 install_linux.sh 下载。"}
+            <div className="font-bold tracking-[0.16em] uppercase mb-1">
+              缺少提示词模型 · {missingLlm.length}
+            </div>
+            {missingLlm.map((it: any) => (
+              <div key={it.key} className="truncate" title={`${it.repo}/${it.filename}`}>
+                {it.name}
+              </div>
+            ))}
+            <div className="text-dim/90 mt-1 truncate" title={s.llmModels.model_root || ""}>
+              扫描目录：{s.llmModels.model_root || "models/llm"}
+            </div>
           </div>
         )}
         <div className="grid grid-cols-2 gap-1.5">

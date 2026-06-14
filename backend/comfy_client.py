@@ -1,4 +1,4 @@
-"""ComfyUI API client: model scan (object_info), workflow injection, /prompt
+"""ComfyUI API client: optional object_info, workflow injection, /prompt
 submit, WebSocket progress + preview relay, output download.
 
 Workflow templates live in backend/workflows/*.json (ComfyUI **API format**).

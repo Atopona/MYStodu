@@ -115,6 +115,21 @@ def _safetensors_summary(path: Path) -> dict:
     with safe_open(str(path), framework="pt", device="cpu") as fh:
         keys = list(fh.keys())
         metadata = fh.metadata() or {}
+        fp8_weight_count = 0
+        fp8_missing_scale = []
+        key_set = set(keys)
+        for key in keys:
+            if not key.endswith(".weight"):
+                continue
+            try:
+                dtype = fh.get_slice(key).get_dtype()
+            except Exception:  # noqa: BLE001
+                continue
+            if dtype != "F8_E4M3":
+                continue
+            fp8_weight_count += 1
+            if f"{key}_scale" not in key_set:
+                fp8_missing_scale.append(key)
 
     config_text = metadata.get("config", "")
     config_data = {}
@@ -151,13 +166,24 @@ def _safetensors_summary(path: Path) -> dict:
                 "model.diffusion_model.audio_embeddings_connector.",
             ),
             "spatial_upscaler": any_prefix("up_blocks.", "down_blocks.", "res_blocks.", "conv_in.", "layers."),
+            "gemma_language": any_prefix(
+                "language_model.model.",
+                "language_model.layers.",
+                "model.layers.",
+                "model.embed_tokens.",
+                "model.model.language_model.",
+            ),
         },
+        "fp8_weight_count": fp8_weight_count,
+        "fp8_missing_scale_count": len(fp8_missing_scale),
+        "fp8_missing_scale_examples": fp8_missing_scale[:8],
     }
 
 
 def inspect_component_bundle(resolved: ResolvedRenderModels) -> dict:
     paths = [
         ("checkpoint", resolved.checkpoint),
+        ("text_encoder", resolved.text_encoder),
         ("text_projection", resolved.text_projection),
         ("audio_vae", resolved.audio_vae),
         ("spatial_upscaler", resolved.spatial_upscaler),
@@ -199,6 +225,7 @@ def inspect_component_bundle(resolved: ResolvedRenderModels) -> dict:
 
     required_groups = {
         "transformer": "主 diffusion transformer 权重",
+        "gemma_language": "Gemma language text encoder 权重",
         "video_vae": "Video VAE encoder/decoder 权重",
         "audio_vae": "Audio VAE encoder/decoder 权重",
         "vocoder": "vocoder 权重",
@@ -211,6 +238,14 @@ def inspect_component_bundle(resolved: ResolvedRenderModels) -> dict:
     upscaler = next((item for item in items if item.get("role") == "spatial_upscaler"), None)
     if upscaler and upscaler.get("ok") and "config" not in (upscaler.get("metadata_keys") or []):
         errors.append("spatial upscaler 缺少 metadata['config']，官方 upsampler 无法可靠构建")
+
+    text_encoder = next((item for item in items if item.get("role") == "text_encoder"), None)
+    if text_encoder and text_encoder.get("ok") and text_encoder.get("fp8_missing_scale_count", 0):
+        examples = ", ".join(text_encoder.get("fp8_missing_scale_examples") or [])
+        errors.append(
+            "Gemma text encoder FP8 权重缺少对应 .weight_scale，无法还原真实权重"
+            + (f"：{examples}" if examples else "")
+        )
 
     return {
         "ok": not errors,

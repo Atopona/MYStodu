@@ -36,7 +36,8 @@ if not exist "frontend\dist\index.html" (
         call npm run build
         popd
     ) || (
-        echo [warn] frontend\dist missing and npm not found - UI will be unavailable.
+        echo [error] frontend\dist missing and npm not found. Install Node.js/npm or run npm install ^&^& npm run build in frontend.
+        pause & exit /b 1
     )
 )
 

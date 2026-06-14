@@ -102,6 +102,13 @@ function Resolve-HfSelection([string]$RepoId) {
     $RepoId = "SulphurAI/Sulphur-2-base"
   }
 
+  if ($RepoId -eq "SulphurAI/Sulphur-2-base") {
+    return @{
+      Gguf = "https://huggingface.co/SulphurAI/Sulphur-2-base/resolve/main/prompt_enhancer_uncensored/prompt_enhancer_uncensored-q8_0.gguf"
+      Mmproj = "https://huggingface.co/SulphurAI/Sulphur-2-base/resolve/main/prompt_enhancer_uncensored/mmproj-prompt_enhancer_uncensored.gguf"
+    }
+  }
+
   Write-Step "scanning Hugging Face repo $RepoId"
   $headers = @{}
   if ($env:HF_TOKEN) {

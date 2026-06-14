@@ -9,8 +9,6 @@ export interface DistilStage {
   model: string;
   enabled: boolean;
   strength: number;
-  visual: number;
-  audio: number;
 }
 
 export interface LoraItem {
@@ -24,7 +22,7 @@ export interface Pipeline {
   text_projection: string;
   upscaler: string;
   audio_vae: string;
-  preview_vae: string;
+  video_vae: string;
   checkpoint: string;
   distil1: DistilStage;
   distil2: DistilStage;
@@ -46,7 +44,7 @@ export interface ModelLists {
   text_projections: string[];
   upscalers: string[];
   audio_vaes: string[];
-  preview_vaes: string[];
+  video_vaes: string[];
   checkpoints: string[];
   loras: string[];
   source?: string;
@@ -84,6 +82,12 @@ export interface ServiceStatus {
   state: string;
   detail?: string;
   url?: string;
+  ready?: boolean;
+  dependencies_ready?: boolean;
+  device_ready?: boolean;
+  device?: DiagnosticsDevice;
+  default_models_ready?: boolean;
+  missing_required?: RequiredModelFile[];
   gguf?: string;
   mmproj?: string;
   mode?: string;
@@ -130,4 +134,121 @@ export interface HistoryItem {
     renderer?: string;
     words?: number;
   };
+}
+
+export interface DiagnosticDependency {
+  module: string;
+  package: string;
+  ok: boolean;
+  error: string;
+}
+
+export interface DiagnosticRequiredFile extends RequiredModelFile {
+  present: boolean;
+  path: string;
+  bytes: number;
+}
+
+export interface DiagnosticsDevice {
+  ready: boolean;
+  allow_cpu: boolean;
+  torch_available: boolean;
+  torch_version: string;
+  torch_cuda_version: string;
+  cuda_available: boolean;
+  cuda_device_count: number;
+  current_device: number | null;
+  detail: string;
+  devices: Array<{
+    index: number;
+    name: string;
+    capability: string;
+    total_memory: number;
+    free_memory?: number;
+    runtime_total_memory?: number;
+  }>;
+  nvidia_smi: {
+    available: boolean;
+    summary: string[];
+    error: string;
+  };
+}
+
+export interface DiagnosticsReport {
+  python: {
+    executable: string;
+    version: string;
+    platform: string;
+  };
+  paths: {
+    root: string;
+    llm_model_dir: string;
+    ltx_model_dir: string;
+    frontend_dist: string;
+  };
+  dependencies: {
+    ready: boolean;
+    items: DiagnosticDependency[];
+  };
+  device: DiagnosticsDevice;
+  llm_models: {
+    ready: boolean;
+    required: DiagnosticRequiredFile[];
+    scan: any;
+  };
+  render_models: {
+    ready: boolean;
+    required: DiagnosticRequiredFile[];
+    scan: any;
+  };
+  model_integrity: {
+    ok: boolean;
+    skipped: boolean;
+    reason?: string;
+    items: Array<RequiredModelFile & {
+      ok: boolean;
+      path: string;
+      bytes?: number;
+      tensor_count?: number;
+      config_required?: boolean;
+      config_present?: boolean;
+      error?: string;
+    }>;
+  };
+  component_bundle: {
+    ok: boolean;
+    skipped: boolean;
+    reason?: string;
+    errors?: string[];
+    config_keys?: string[];
+    items?: Array<{
+      role: string;
+      ok: boolean;
+      path: string;
+      bytes?: number;
+      tensor_count?: number;
+      metadata_keys?: string[];
+      config_keys?: string[];
+      config_error?: string;
+      groups?: Record<string, boolean>;
+      error?: string;
+    }>;
+  };
+  runner_entrypoint: {
+    ok: boolean;
+    returncode: number | null;
+    stdout_tail?: string;
+    stderr_tail?: string;
+    error?: string;
+  };
+  dry_run: {
+    ok: boolean;
+    skipped: boolean;
+    reason?: string;
+    error?: string;
+    command?: string[];
+    summary?: Record<string, string>;
+  };
+  renderer_status: ServiceStatus;
+  overall_ready: boolean;
 }

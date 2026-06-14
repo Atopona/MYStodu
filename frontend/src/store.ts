@@ -3,6 +3,7 @@ import { api } from "./lib/api";
 import { parseBeats, randomSeed, snapFrames, wordCount } from "./lib/prompt";
 import {
   Beat,
+  DiagnosticsReport,
   HistoryItem,
   JobState,
   LogEntry,
@@ -46,6 +47,8 @@ export interface ConsoleState {
     ready?: boolean;
   };
   settings: Settings | null;
+  diagnostics: DiagnosticsReport | null;
+  diagnosticsLoading: boolean;
   // director inputs
   mode: "i2v" | "t2v";
   image: { id: string; url: string; width: number; height: number } | null;
@@ -68,12 +71,6 @@ export interface ConsoleState {
   beats: Beat[];
   locked: boolean;
   seed: string;
-  frameOverlap: number;
-  transitionFade: number;
-  midsceneGuide: number;
-  carryI2v: boolean;
-  midsceneAnchor: boolean;
-  decodeTile: number;
   generating: boolean;
   refining: boolean;
   statusLine: StatusLine;
@@ -85,6 +82,7 @@ export interface ConsoleState {
   // ui
   showHistory: boolean;
   showSettings: boolean;
+  showDiagnostics: boolean;
   toasts: Toast[];
   savedAt: number;
 
@@ -98,6 +96,7 @@ export interface ConsoleState {
   loadInitial: () => Promise<void>;
   refreshModels: () => Promise<void>;
   refreshLlmModels: () => Promise<void>;
+  refreshDiagnostics: () => Promise<void>;
   generate: () => Promise<void>;
   refine: (instruction: string) => Promise<void>;
   render: () => Promise<void>;
@@ -111,12 +110,10 @@ export interface ConsoleState {
   reconnectRender: () => Promise<void>;
 }
 
-const defaultDistil = (model = "") => ({
+const defaultDistil = (model = "", strength = 0.5) => ({
   model,
   enabled: true,
-  strength: 1.0,
-  visual: 0.85,
-  audio: 0.9,
+  strength,
 });
 
 const initialPipeline: Pipeline = {
@@ -124,10 +121,10 @@ const initialPipeline: Pipeline = {
   text_projection: "",
   upscaler: "",
   audio_vae: "",
-  preview_vae: "",
+  video_vae: "",
   checkpoint: "",
-  distil1: defaultDistil(),
-  distil2: { ...defaultDistil(), visual: 0.64 },
+  distil1: defaultDistil("", 0.25),
+  distil2: defaultDistil("", 0.5),
   loras: [],
 };
 
@@ -135,38 +132,66 @@ const validOrEmpty = (value: string, options: string[]) =>
   value && options.includes(value) ? value : "";
 
 const sanitizePipeline = (pipeline: Pipeline, models: ModelLists): Pipeline => ({
-  ...pipeline,
   text_encoder: validOrEmpty(pipeline.text_encoder, models.text_encoders),
   text_projection: validOrEmpty(pipeline.text_projection, models.text_projections),
   upscaler: validOrEmpty(pipeline.upscaler, models.upscalers),
   audio_vae: validOrEmpty(pipeline.audio_vae, models.audio_vaes),
-  preview_vae: validOrEmpty(pipeline.preview_vae, models.preview_vaes),
+  video_vae: validOrEmpty(pipeline.video_vae || "", models.video_vaes || []),
   checkpoint: validOrEmpty(pipeline.checkpoint, models.checkpoints),
   distil1: {
-    ...pipeline.distil1,
-    model: validOrEmpty(pipeline.distil1.model, models.loras),
+    model: validOrEmpty(pipeline.distil1?.model || "", models.loras),
+    enabled: pipeline.distil1?.enabled ?? true,
+    strength: pipeline.distil1?.strength ?? 0.25,
   },
   distil2: {
-    ...pipeline.distil2,
-    model: validOrEmpty(pipeline.distil2.model, models.loras),
+    model: validOrEmpty(pipeline.distil2?.model || "", models.loras),
+    enabled: pipeline.distil2?.enabled ?? true,
+    strength: pipeline.distil2?.strength ?? 0.5,
   },
-  loras: pipeline.loras.filter((l) => models.loras.includes(l.name)),
+  loras: (pipeline.loras || [])
+    .filter((l) => models.loras.includes(l.name))
+    .map((l) => ({
+      name: l.name,
+      enabled: l.enabled ?? true,
+      strength: l.strength ?? 1.0,
+    })),
 });
 
-const fillPipelineDefaults = (pipeline: Pipeline, models: ModelLists): Pipeline => ({
-  ...pipeline,
+const requiredName = (models: ModelLists, key: string) =>
+  models.required?.find((it) => it.key === key)?.name || "";
+
+const modeCheckpointName = (models: ModelLists, mode: "i2v" | "t2v") =>
+  requiredName(models, mode === "i2v" ? "i2v_checkpoint" : "t2v_checkpoint");
+
+const checkpointForMode = (
+  current: string,
+  models: ModelLists,
+  mode: "i2v" | "t2v",
+  previousMode?: "i2v" | "t2v"
+) => {
+  const target = modeCheckpointName(models, mode);
+  const previous = previousMode ? modeCheckpointName(models, previousMode) : "";
+  const currentIsAuto = !current || current === previous;
+  if (currentIsAuto && target && models.checkpoints.includes(target)) return target;
+  if (current && models.checkpoints.includes(current)) return current;
+  return target && models.checkpoints.includes(target) ? target : models.checkpoints[0] || "";
+};
+
+const fillPipelineDefaults = (
+  pipeline: Pipeline,
+  models: ModelLists,
+  mode: "i2v" | "t2v",
+  previousMode?: "i2v" | "t2v"
+): Pipeline => ({
   text_encoder: pipeline.text_encoder || models.text_encoders[0] || "",
   text_projection: pipeline.text_projection || models.text_projections[0] || "",
   upscaler: pipeline.upscaler || models.upscalers[0] || "",
   audio_vae: pipeline.audio_vae || models.audio_vaes[0] || "",
-  preview_vae: pipeline.preview_vae || models.preview_vaes[0] || "",
-  checkpoint: pipeline.checkpoint || models.checkpoints[0] || "",
-  distil1: pipeline.distil1.model
-    ? pipeline.distil1
-    : { ...defaultDistil(models.loras[0] || ""), visual: 0.85 },
-  distil2: pipeline.distil2.model
-    ? pipeline.distil2
-    : { ...defaultDistil(models.loras[0] || ""), visual: 0.64 },
+  video_vae: pipeline.video_vae || models.video_vaes?.[0] || "",
+  checkpoint: checkpointForMode(pipeline.checkpoint, models, mode, previousMode),
+  distil1: pipeline.distil1.model ? pipeline.distil1 : defaultDistil(models.loras[0] || "", 0.25),
+  distil2: pipeline.distil2.model ? pipeline.distil2 : defaultDistil(models.loras[0] || "", 0.5),
+  loras: pipeline.loras,
 });
 
 export const useStore = create<ConsoleState>((set, get) => ({
@@ -178,6 +203,8 @@ export const useStore = create<ConsoleState>((set, get) => ({
   models: null,
   llmModels: { ggufs: [], mmprojs: [], suggested: false },
   settings: null,
+  diagnostics: null,
+  diagnosticsLoading: false,
 
   mode: "i2v",
   image: null,
@@ -201,12 +228,6 @@ export const useStore = create<ConsoleState>((set, get) => ({
   beats: [],
   locked: false,
   seed: randomSeed(),
-  frameOverlap: 16,
-  transitionFade: 10,
-  midsceneGuide: 0.35,
-  carryI2v: true,
-  midsceneAnchor: true,
-  decodeTile: 0,
   generating: false,
   refining: false,
   statusLine: { text: "Awaiting direction — upload a frame or describe the shot.", tone: "idle" },
@@ -218,10 +239,23 @@ export const useStore = create<ConsoleState>((set, get) => ({
 
   showHistory: false,
   showSettings: false,
+  showDiagnostics: false,
   toasts: [],
   savedAt: 0,
 
-  set: (p) => set(p),
+  set: (p) =>
+    set((s) => {
+      if (p.mode && p.mode !== s.mode && s.models) {
+        const pipeline = fillPipelineDefaults(
+          s.pipeline,
+          s.models,
+          p.mode,
+          s.mode
+        );
+        return { ...p, pipeline };
+      }
+      return p;
+    }),
 
   toast: (msg, tone = "ok") => {
     const id = toastId++;
@@ -310,12 +344,14 @@ export const useStore = create<ConsoleState>((set, get) => ({
     // Drop stale saved model names, then choose defaults from real local files.
     const s = get();
     if (s.models) {
-      const pipeline = fillPipelineDefaults(sanitizePipeline(s.pipeline, s.models), s.models);
+      const pipeline = fillPipelineDefaults(sanitizePipeline(s.pipeline, s.models), s.models, s.mode);
       set({ pipeline });
     }
     const afterModels = get();
-    const gguf = validOrEmpty(afterModels.gguf, afterModels.llmModels.ggufs);
-    const mmproj = validOrEmpty(afterModels.mmproj, afterModels.llmModels.mmprojs);
+    const settingsGguf = validOrEmpty(afterModels.settings?.llm_gguf || "", afterModels.llmModels.ggufs);
+    const settingsMmproj = validOrEmpty(afterModels.settings?.llm_mmproj || "", afterModels.llmModels.mmprojs);
+    const gguf = validOrEmpty(afterModels.gguf, afterModels.llmModels.ggufs) || settingsGguf;
+    const mmproj = validOrEmpty(afterModels.mmproj, afterModels.llmModels.mmprojs) || settingsMmproj;
     if (gguf !== afterModels.gguf || mmproj !== afterModels.mmproj) {
       set({ gguf, mmproj });
     }
@@ -332,7 +368,7 @@ export const useStore = create<ConsoleState>((set, get) => ({
       const models = await api.models();
       set((s) => ({
         models,
-        pipeline: fillPipelineDefaults(sanitizePipeline(s.pipeline, models), models),
+        pipeline: fillPipelineDefaults(sanitizePipeline(s.pipeline, models), models, s.mode),
       }));
     } catch (e: any) {
       get().toast(`模型列表获取失败：${e.message}`, "err");
@@ -349,6 +385,18 @@ export const useStore = create<ConsoleState>((set, get) => ({
       }));
     } catch {
       /* non-fatal */
+    }
+  },
+
+  refreshDiagnostics: async () => {
+    set({ diagnosticsLoading: true });
+    try {
+      const diagnostics = await api.diagnostics();
+      set({ diagnostics });
+    } catch (e: any) {
+      get().toast(`诊断失败：${e.message}`, "err");
+    } finally {
+      set({ diagnosticsLoading: false });
     }
   },
 
@@ -433,6 +481,8 @@ export const useStore = create<ConsoleState>((set, get) => ({
         lora_triggers: s.loraTriggers,
         prompt: s.prompt,
         instruction,
+        gguf: s.gguf,
+        mmproj: s.mmproj,
       });
       set({
         prompt: res.prompt,
@@ -482,6 +532,28 @@ export const useStore = create<ConsoleState>((set, get) => ({
       });
       return;
     }
+    let renderService = s.renderService;
+    try {
+      const st = await api.status();
+      renderService = st.render;
+      set({ llm: st.llm, renderService: st.render });
+    } catch {
+      /* keep last known status */
+    }
+    if (renderService.dependencies_ready === false) {
+      const msg = renderService.detail || "本地 LTX 渲染器未就绪";
+      s.toast(msg, "err");
+      set({ statusLine: { text: msg, tone: "err" }, showDiagnostics: true });
+      await get().refreshDiagnostics();
+      return;
+    }
+    if (renderService.device_ready === false) {
+      const msg = renderService.detail || "本地 LTX CUDA/GPU 未就绪";
+      s.toast(msg, "err");
+      set({ statusLine: { text: msg, tone: "err" }, showDiagnostics: true });
+      await get().refreshDiagnostics();
+      return;
+    }
     if (s.job && (s.job.status === "running" || s.job.status === "queued")) {
       s.toast("已有任务在渲染中（会排队执行）", "warn");
     }
@@ -504,12 +576,6 @@ export const useStore = create<ConsoleState>((set, get) => ({
           frames: snapFrames(s.duration, s.fps),
           width: res0.width,
           height: res0.height,
-          frame_overlap: s.frameOverlap,
-          transition_fade: s.transitionFade,
-          midscene_guide: s.midsceneGuide,
-          carry_i2v_guides: s.carryI2v,
-          midscene_anchor: s.midsceneAnchor,
-          decode_tile: s.decodeTile,
         },
         pipeline: s.pipeline,
         ui_snapshot: get().snapshot(),
@@ -531,6 +597,16 @@ export const useStore = create<ConsoleState>((set, get) => ({
     } catch (e: any) {
       set({ statusLine: { text: e.message, tone: "err" } });
       get().toast(e.message, "err");
+      if (
+        String(e.message || "").includes("缺少本地 LTX") ||
+        String(e.message || "").includes("模型文件") ||
+        String(e.message || "").includes("推理依赖") ||
+        String(e.message || "").includes("CUDA") ||
+        String(e.message || "").includes("GPU")
+      ) {
+        set({ showDiagnostics: true });
+        await get().refreshDiagnostics();
+      }
     }
   },
 
@@ -565,12 +641,6 @@ export const useStore = create<ConsoleState>((set, get) => ({
       prompt: s.prompt,
       locked: s.locked,
       seed: s.seed,
-      frameOverlap: s.frameOverlap,
-      transitionFade: s.transitionFade,
-      midsceneGuide: s.midsceneGuide,
-      carryI2v: s.carryI2v,
-      midsceneAnchor: s.midsceneAnchor,
-      decodeTile: s.decodeTile,
     };
   },
 
@@ -580,8 +650,7 @@ export const useStore = create<ConsoleState>((set, get) => ({
     const keys = [
       "mode", "image", "gguf", "mmproj", "creativity", "intent", "loraTriggers",
       "shotType", "dialogue", "fov", "choreo", "duration", "fps", "resolutionIdx",
-      "pipeline", "prompt", "locked", "seed", "frameOverlap", "transitionFade",
-      "midsceneGuide", "carryI2v", "midsceneAnchor", "decodeTile",
+      "pipeline", "prompt", "locked", "seed",
     ] as const;
     for (const k of keys) {
       if (snap[k] !== undefined) (safe as any)[k] = snap[k];
@@ -616,9 +685,12 @@ export const useStore = create<ConsoleState>((set, get) => ({
 
   reconnectLlm: async () => {
     const s = get();
+    const selectedChanged =
+      (!!s.gguf && s.llm.gguf !== s.gguf) ||
+      ((s.llm.mmproj || "") !== s.mmproj);
     if (
       (s.settings?.llm_mode === "embedded" || s.settings?.llm_mode === "managed") &&
-      s.llm.state !== "running" &&
+      (selectedChanged || s.llm.state !== "running") &&
       s.llm.state !== "starting" &&
       s.llm.state !== "loading"
     ) {
@@ -629,7 +701,7 @@ export const useStore = create<ConsoleState>((set, get) => ({
             : "正在启动兼容 LLM 子进程 …",
           "warn"
         );
-        await api.llmStart(s.gguf || undefined, s.mmproj || undefined);
+        await api.llmStart(s.gguf || undefined, s.mmproj);
       } catch (e: any) {
         get().toast(e.message, "err");
       }

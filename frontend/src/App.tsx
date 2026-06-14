@@ -8,6 +8,7 @@ import PromptPanel from "./components/PromptPanel";
 import RenderBay from "./components/RenderBay";
 import HistoryModal from "./components/HistoryModal";
 import SettingsModal from "./components/SettingsModal";
+import DiagnosticsModal from "./components/DiagnosticsModal";
 
 function Toasts() {
   const toasts = useStore((s) => s.toasts);
@@ -98,6 +99,7 @@ export default function App() {
       </div>
       <HistoryModal />
       <SettingsModal />
+      <DiagnosticsModal />
       <Toasts />
     </ErrorBoundary>
   );

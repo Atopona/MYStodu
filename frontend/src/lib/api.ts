@@ -27,6 +27,7 @@ const json = (method: string, body: unknown): RequestInit => ({
 export const api = {
   meta: () => request<any>("/api/meta"),
   status: () => request<any>("/api/status"),
+  diagnostics: () => request<any>("/api/diagnostics"),
   models: () => request<any>("/api/models"),
   llmModels: () => request<any>("/api/llm/models"),
   getSettings: () => request<any>("/api/settings"),

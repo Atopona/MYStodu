@@ -2,7 +2,7 @@ import React from "react";
 import { useStore } from "../store";
 import { snapFrames, wordCount } from "../lib/prompt";
 import { Capsule, GhostButton, StatusDot } from "./ui";
-import { IconGear, Logo } from "./icons";
+import { IconBolt, IconGear, Logo } from "./icons";
 
 const LED_COLORS = [
   "#5df06a", "#c8f53b", "#f5c542", "#ff5d5d",
@@ -59,6 +59,14 @@ export default function TopBar() {
       <div className="flex items-center gap-1">
         <StatusDot state={llmState} label="LLM" onClick={() => s.reconnectLlm()} />
         <StatusDot state={renderState} label="RENDER" onClick={() => s.reconnectRender()} />
+        <button
+          type="button"
+          title="本地诊断"
+          onClick={() => s.set({ showDiagnostics: true })}
+          className="ml-1 p-1.5 text-dim hover:text-acid border border-transparent hover:border-line rounded-sm transition-colors"
+        >
+          <IconBolt />
+        </button>
         <button
           type="button"
           title="设置"

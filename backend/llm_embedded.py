@@ -6,6 +6,7 @@ HTTP service. The older llama-server subprocess path remains available as a
 compatibility fallback in llm_manager.py.
 """
 import atexit
+import importlib
 import os
 import threading
 from collections import deque
@@ -46,6 +47,32 @@ class EmbeddedLlamaManager:
 
     def ready(self) -> bool:
         return self.state == "running" and self.llm is not None
+
+    def _make_chat_handler(self, mmproj_path: str):
+        llama_chat_format = importlib.import_module("llama_cpp.llama_chat_format")
+
+        handler_names = (
+            "Gemma3ChatHandler",
+            "Llava16ChatHandler",
+            "Llava15ChatHandler",
+            "NanoLlavaChatHandler",
+        )
+        last_error = ""
+        for name in handler_names:
+            cls = getattr(llama_chat_format, name, None)
+            if cls is None:
+                continue
+            for kwargs in ({"clip_model_path": mmproj_path}, {"mmproj_path": mmproj_path}):
+                try:
+                    handler = cls(**kwargs)
+                    self._log(f"embedded vision handler: {name}")
+                    return handler
+                except TypeError:
+                    continue
+                except Exception as exc:  # noqa: BLE001
+                    last_error = f"{name}: {exc}"
+                    break
+        raise RuntimeError(last_error or "no compatible llama-cpp-python vision chat handler found")
 
     def start(self, settings: dict, gguf: str = "", mmproj: str = "") -> dict:
         with self._lock:
@@ -88,9 +115,7 @@ class EmbeddedLlamaManager:
             }
             if target_mmproj and os.path.exists(target_mmproj):
                 try:
-                    from llama_cpp.llama_chat_format import Llava15ChatHandler
-
-                    kwargs["chat_handler"] = Llava15ChatHandler(clip_model_path=target_mmproj)
+                    kwargs["chat_handler"] = self._make_chat_handler(target_mmproj)
                     self.mmproj = target_mmproj
                 except Exception as exc:  # noqa: BLE001
                     self._log(
@@ -123,11 +148,33 @@ class EmbeddedLlamaManager:
             self.detail = ""
         return self.status()
 
+    @staticmethod
+    def _messages_need_vision(messages: list) -> bool:
+        for message in messages:
+            content = message.get("content") if isinstance(message, dict) else None
+            if not isinstance(content, list):
+                continue
+            for part in content:
+                if isinstance(part, dict) and part.get("type") == "image_url":
+                    return True
+        return False
+
     def chat(self, settings: dict, messages: list, *, temperature: float, max_tokens: int = 3072) -> str:
-        if not self.ready():
+        target_gguf = llm_manager.resolve_model_path(settings.get("llm_gguf", ""))
+        target_mmproj = llm_manager.resolve_model_path(settings.get("llm_mmproj", ""))
+        if (
+            not self.ready()
+            or target_gguf != self.gguf
+            or ((target_mmproj if target_mmproj and os.path.exists(target_mmproj) else "") != self.mmproj)
+        ):
             st = self.start(settings)
             if st["state"] != "running":
                 raise RuntimeError(st.get("detail") or "embedded LLM is not ready")
+        if self._messages_need_vision(messages) and not self.mmproj:
+            raise RuntimeError(
+                "I2V prompt generation requires a loaded local mmproj vision projector. "
+                "Run install_linux.sh, select a valid mmproj, and make sure llama-cpp-python supports the Gemma3 vision handler."
+            )
         try:
             out = self.llm.create_chat_completion(  # type: ignore[union-attr]
                 messages=messages,

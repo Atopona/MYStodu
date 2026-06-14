@@ -13,13 +13,20 @@ from . import config, model_manifest
 MODEL_EXTS = {".safetensors", ".gguf", ".pt", ".pth", ".bin", ".model"}
 
 
+def _usable_file(path: Path) -> bool:
+    try:
+        return path.is_file() and path.stat().st_size > 0
+    except OSError:
+        return False
+
+
 def _files(root: str) -> List[Path]:
     base = Path(root)
     if not base.exists():
         return []
     out: List[Path] = []
     for path in base.rglob("*"):
-        if path.is_file() and path.suffix.lower() in MODEL_EXTS:
+        if _usable_file(path) and path.suffix.lower() in MODEL_EXTS:
             out.append(path)
     return sorted(out, key=lambda p: str(p).lower())
 
@@ -28,7 +35,7 @@ def _all_files(root: str) -> List[Path]:
     base = Path(root)
     if not base.exists():
         return []
-    return sorted((p for p in base.rglob("*") if p.is_file()), key=lambda p: str(p).lower())
+    return sorted((p for p in base.rglob("*") if _usable_file(p)), key=lambda p: str(p).lower())
 
 
 def _render_roots() -> List[str]:
@@ -53,13 +60,48 @@ def _contains(path: Path, *needles: str) -> bool:
 
 
 def _missing(required: List[Dict[str, str]], roots: List[str]) -> List[Dict[str, str]]:
-    existing = {p.name.lower() for root in roots for p in _all_files(root)}
     missing = []
     for item in required:
-        name = model_manifest.basename(item["filename"])
-        if name.lower() not in existing:
+        if _find_required_entry(item, roots, categorized=item.get("category") != "llm") is None:
             missing.append(model_manifest.public_entry(item))
     return missing
+
+
+def _unique(paths: Iterable[Path]) -> List[Path]:
+    seen = set()
+    out: List[Path] = []
+    for path in paths:
+        key = str(path).lower()
+        if key not in seen:
+            seen.add(key)
+            out.append(path)
+    return out
+
+
+def _required_candidates(entry: Dict[str, str], root: str, *, categorized: bool) -> List[Path]:
+    base = Path(root)
+    filename = Path(entry["filename"])
+    basename = model_manifest.basename(entry["filename"])
+    if categorized:
+        category_root = base / entry["category"]
+        candidates = [category_root / filename, category_root / basename]
+        if category_root.exists():
+            candidates.extend(path for path in category_root.rglob(basename))
+        return _unique(candidates)
+    return _unique([base / filename, base / basename])
+
+
+def _find_required_entry(
+    entry: Dict[str, str],
+    roots: List[str],
+    *,
+    categorized: bool,
+) -> Path | None:
+    for root in roots:
+        for candidate in _required_candidates(entry, root, categorized=categorized):
+            if _usable_file(candidate):
+                return candidate
+    return None
 
 
 def scan_render_models() -> dict:
@@ -68,12 +110,23 @@ def scan_render_models() -> dict:
 
     loras = [p for p in files if _contains(p, "lora")]
     upscalers = [p for p in files if _contains(p, "upscaler", "upscale_models")]
-    audio_vaes = [p for p in files if _contains(p, "audio_vae", "vae")]
-    preview_vaes = [p for p in files if _contains(p, "tae", "preview")]
-    text_projections = [p for p in files if _contains(p, "projection", "text_projection")]
+    audio_vaes = [
+        p for p in files
+        if _contains(p, "audio_vae", "audio-vae", "audio/vae", "audio\\vae", "vocoder")
+    ]
+    video_vaes = [
+        p for p in files
+        if p not in audio_vaes and _contains(p, "video_vae", "video-vae", "ltxv_vae", "vae")
+    ]
+    text_projections = [
+        p for p in files
+        if p.suffix.lower() == ".safetensors" and _contains(p, "projection", "text_projection")
+    ]
     text_encoders = [
         p for p in files
-        if p not in text_projections and _contains(p, "gemma", "clip", "t5", "text_encoder")
+        if p.suffix.lower() == ".safetensors"
+        and p not in text_projections
+        and _contains(p, "gemma", "clip", "t5", "text_encoder")
     ]
     checkpoints = [
         p for p in files
@@ -81,7 +134,7 @@ def scan_render_models() -> dict:
         and p not in loras
         and p not in upscalers
         and p not in audio_vaes
-        and p not in preview_vaes
+        and p not in video_vaes
         and p not in text_projections
         and p not in text_encoders
     ]
@@ -94,7 +147,7 @@ def scan_render_models() -> dict:
         "text_projections": _names(text_projections),
         "upscalers": _names(upscalers),
         "audio_vaes": _names(audio_vaes),
-        "preview_vaes": _names(preview_vaes),
+        "video_vaes": _names(video_vaes),
         "checkpoints": _names(checkpoints),
         "loras": _names(loras),
         "source": "local",
@@ -122,12 +175,14 @@ def find_required_render_file(key: str) -> Path | None:
     entry = next((item for item in model_manifest.required_render_files() if item["key"] == key), None)
     if entry is None:
         return None
-    name = model_manifest.basename(entry["filename"]).lower()
-    for root in _render_roots():
-        for item in _all_files(root):
-            if item.name.lower() == name:
-                return item
-    return None
+    return _find_required_entry(entry, _render_roots(), categorized=True)
+
+
+def find_required_llm_file(key: str) -> Path | None:
+    entry = next((item for item in model_manifest.required_llm_files() if item["key"] == key), None)
+    if entry is None:
+        return None
+    return _find_required_entry(entry, [config.LLM_MODEL_DIR], categorized=False)
 
 
 def scan_llm_models() -> dict:

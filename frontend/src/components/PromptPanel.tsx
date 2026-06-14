@@ -1,7 +1,7 @@
 import React, { useMemo, useRef, useState } from "react";
 import { useStore } from "../store";
 import { highlightPrompt, randomSeed, wordCount } from "../lib/prompt";
-import { GhostButton, SectionTitle, Slider, Switch } from "./ui";
+import { GhostButton, SectionTitle } from "./ui";
 import { IconBolt, IconDice, IconLock, IconPlay, IconUnlock } from "./icons";
 
 function TimelineRuler() {
@@ -178,72 +178,6 @@ export default function PromptPanel() {
         </button>
       </div>
 
-      {/* render detail sliders */}
-      <div className="border border-line bg-panel2/30 rounded-sm p-2.5 space-y-2">
-        <div className="text-nano tracking-[0.16em] text-dim/80 uppercase">
-          crossfade per beat / 每个 beat 交叠 — 连续长片段
-        </div>
-        <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-          <Slider
-            label="frame overlap"
-            value={s.frameOverlap}
-            min={0}
-            max={32}
-            step={1}
-            onChange={(v) => s.set({ frameOverlap: v })}
-            dim
-          />
-          <Slider
-            label="transition fade"
-            value={s.transitionFade}
-            min={0}
-            max={32}
-            step={1}
-            onChange={(v) => s.set({ transitionFade: v })}
-            dim
-          />
-          <Slider
-            label="mid-scene guide str"
-            value={s.midsceneGuide}
-            min={0}
-            max={1}
-            step={0.05}
-            onChange={(v) => s.set({ midsceneGuide: v })}
-            fmt={(v) => v.toFixed(2)}
-            dim
-          />
-          <div className="flex flex-col justify-end gap-1.5 pb-[2px]">
-            <Switch on={s.carryI2v} onChange={(v) => s.set({ carryI2v: v })} label="carry i2v guides" />
-            <Switch
-              on={s.midsceneAnchor}
-              onChange={(v) => s.set({ midsceneAnchor: v })}
-              label="mid-scene anchor"
-            />
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-nano tracking-[0.14em] text-dim uppercase">
-            decode tile (0 = off, 512 if OOM)
-          </span>
-          <div className="flex gap-1">
-            {[0, 256, 512, 768].map((t) => (
-              <button
-                key={t}
-                type="button"
-                onClick={() => s.set({ decodeTile: t })}
-                className={`px-2 py-[3px] rounded-sm border text-nano font-bold tabular-nums transition-colors ${
-                  s.decodeTile === t
-                    ? "border-acid text-acid bg-acid/10"
-                    : "border-line text-dim bg-panel2 hover:border-line2"
-                }`}
-              >
-                {t}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
       {/* action buttons */}
       <div className="grid grid-cols-2 gap-2">
         <button
@@ -267,7 +201,6 @@ export default function PromptPanel() {
       </div>
 
       <div className={`text-center text-nano tracking-wider ${toneCls} min-h-[14px]`}>
-        {s.statusLine.tone === "ok" && "⚡ "}
         {s.statusLine.text}
       </div>
     </div>

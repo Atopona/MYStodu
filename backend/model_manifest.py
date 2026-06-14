@@ -41,7 +41,7 @@ def required_llm_files() -> List[Dict[str, str]]:
 
 
 def required_render_files() -> List[Dict[str, str]]:
-    gemma_aux_repo = _env("GEMMA_AUX_REPO", "google/gemma-3-12b-it")
+    gemma_aux_repo = _env("GEMMA_AUX_REPO", "DreamFast/gemma-3-12b-it-heretic-v2")
     return [
         {
             "key": "i2v_checkpoint",
@@ -68,6 +68,13 @@ def required_render_files() -> List[Dict[str, str]]:
             "filename": _env("GEMMA_TOKENIZER_MODEL", "tokenizer.model"),
         },
         {
+            "key": "gemma_tokenizer_json",
+            "label": "Gemma tokenizer JSON",
+            "category": "gemma",
+            "repo": gemma_aux_repo,
+            "filename": _env("GEMMA_TOKENIZER_JSON", "tokenizer.json"),
+        },
+        {
             "key": "gemma_tokenizer_config",
             "label": "Gemma tokenizer config",
             "category": "gemma",
@@ -75,11 +82,32 @@ def required_render_files() -> List[Dict[str, str]]:
             "filename": _env("GEMMA_TOKENIZER_CONFIG", "tokenizer_config.json"),
         },
         {
-            "key": "gemma_preprocessor",
-            "label": "Gemma image preprocessor config",
+            "key": "gemma_special_tokens",
+            "label": "Gemma special tokens map",
             "category": "gemma",
             "repo": gemma_aux_repo,
-            "filename": _env("GEMMA_PREPROCESSOR_CONFIG", "preprocessor_config.json"),
+            "filename": _env("GEMMA_SPECIAL_TOKENS_MAP", "special_tokens_map.json"),
+        },
+        {
+            "key": "gemma_chat_template",
+            "label": "Gemma chat template",
+            "category": "gemma",
+            "repo": gemma_aux_repo,
+            "filename": _env("GEMMA_CHAT_TEMPLATE", "chat_template.jinja"),
+        },
+        {
+            "key": "gemma_config",
+            "label": "Gemma model config",
+            "category": "gemma",
+            "repo": gemma_aux_repo,
+            "filename": _env("GEMMA_CONFIG", "config.json"),
+        },
+        {
+            "key": "gemma_generation_config",
+            "label": "Gemma generation config",
+            "category": "gemma",
+            "repo": gemma_aux_repo,
+            "filename": _env("GEMMA_GENERATION_CONFIG", "generation_config.json"),
         },
         {
             "key": "text_projection",

@@ -12,7 +12,19 @@ from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSock
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import config, db, jobs, llm_client, llm_embedded, llm_manager, local_models, ltx_local_renderer, prompt_engine
+from . import (
+    config,
+    db,
+    jobs,
+    llm_client,
+    llm_embedded,
+    llm_manager,
+    local_models,
+    ltx_diagnose,
+    ltx_local_renderer,
+    media,
+    prompt_engine,
+)
 from .schemas import GenerateRequest, LlmStartRequest, RefineRequest, RenderRequest, SettingsPatch
 
 # --------------------------------------------------------------- WS hub
@@ -195,6 +207,12 @@ async def api_status():
     return await compute_status()
 
 
+@app.get("/api/diagnostics")
+async def api_diagnostics():
+    """Return a real local readiness report without starting a render."""
+    return await asyncio.to_thread(ltx_diagnose.collect)
+
+
 # ------------------------------------------------------------- settings
 
 
@@ -239,9 +257,9 @@ async def api_llm_start(req: LlmStartRequest):
     settings = db.get_settings()
     if settings["llm_mode"] == "embedded":
         patch = {}
-        if req.gguf:
+        if req.gguf is not None:
             patch["llm_gguf"] = req.gguf
-        if req.mmproj:
+        if req.mmproj is not None:
             patch["llm_mmproj"] = req.mmproj
         if patch:
             settings = db.update_settings(patch)
@@ -256,9 +274,9 @@ async def api_llm_start(req: LlmStartRequest):
             raise HTTPException(502, f"外部 LLM 端点不可达：{settings['external_llm_url']}")
         return {"state": "running", "detail": "external endpoint ok"}
     patch = {}
-    if req.gguf:
+    if req.gguf is not None:
         patch["llm_gguf"] = req.gguf
-    if req.mmproj:
+    if req.mmproj is not None:
         patch["llm_mmproj"] = req.mmproj
     if patch:
         settings = db.update_settings(patch)
@@ -337,10 +355,29 @@ def _camera_suggestion(beats: List[dict]) -> str:
 
 async def _llm_generate(req: GenerateRequest, refine: Optional[RefineRequest] = None) -> dict:
     settings = db.get_settings()
+    if settings.get("llm_mode") in ("embedded", "managed"):
+        patch = {}
+        if req.gguf is not None:
+            patch["llm_gguf"] = req.gguf
+        if req.mmproj is not None:
+            patch["llm_mmproj"] = req.mmproj
+        if patch:
+            settings = db.update_settings(patch)
     image_path = None
     if req.mode == "i2v" and req.image_id:
         p = os.path.join(config.UPLOAD_DIR, os.path.basename(req.image_id))
         image_path = p if os.path.exists(p) else None
+    if req.mode == "i2v" and image_path is None:
+        raise HTTPException(400, "I2V 参考图文件不存在或已失效，请重新上传")
+
+    if image_path is not None and settings["llm_mode"] in ("embedded", "managed"):
+        mmproj_path = llm_manager.resolve_model_path(settings.get("llm_mmproj", ""))
+        if not mmproj_path or not os.path.exists(mmproj_path):
+            raise HTTPException(
+                502,
+                "I2V 提示词生成需要本地多模态 mmproj 文件；请运行 install_linux.sh，"
+                "或在 LLM Model 中选择有效的 mmproj。",
+            )
 
     text = ""
     model_label = ""
@@ -370,7 +407,18 @@ async def _llm_generate(req: GenerateRequest, refine: Optional[RefineRequest] = 
                 temperature=temperature,
             )
         else:
-            if settings["llm_mode"] == "managed" and not await llm_ready(settings):
+            if settings["llm_mode"] == "managed":
+                target_gguf = llm_manager.resolve_model_path(settings.get("llm_gguf", ""))
+                target_mmproj = llm_manager.resolve_model_path(settings.get("llm_mmproj", ""))
+                target_mmproj = target_mmproj if target_mmproj and os.path.exists(target_mmproj) else ""
+                needs_start = (
+                    not await llm_ready(settings)
+                    or target_gguf != manager.gguf
+                    or target_mmproj != manager.mmproj
+                )
+            else:
+                needs_start = False
+            if settings["llm_mode"] == "managed" and needs_start:
                 st = await asyncio.to_thread(manager.start, settings)
                 if st.get("state") == "error":
                     raise RuntimeError(st.get("detail") or "managed llama-server failed to start")
@@ -506,9 +554,49 @@ async def api_cancel(job_id: str):
 # -------------------------------------------------------------- history
 
 
+_REAL_RENDER_META_KEYS = {
+    "checkpoint",
+    "text_encoder",
+    "text_projection",
+    "upscaler",
+    "audio_vae",
+    "gemma_root",
+    "pipeline_kind",
+}
+
+
+def _output_url_to_path(url: str) -> str:
+    rel = url.lstrip("/").replace("files/outputs/", "", 1).replace("/", os.sep)
+    return os.path.join(config.OUTPUT_DIR, rel)
+
+
+def _is_legacy_non_real_job(job: dict) -> bool:
+    meta = job.get("meta") or {}
+    renderer = meta.get("renderer")
+    if meta.get("mock") or renderer in {"mock", "placeholder"}:
+        return True
+    if job.get("status") != "done":
+        return False
+    if renderer != "local-ltx":
+        return True
+    if any(not meta.get(key) for key in _REAL_RENDER_META_KEYS):
+        return True
+    video_url = job.get("video_path") or ""
+    if not video_url:
+        return True
+    video_path = _output_url_to_path(video_url)
+    try:
+        if (not os.path.exists(video_path)) or os.path.getsize(video_path) <= 0:
+            return True
+    except OSError:
+        return True
+    ok, _ = media.validate_video_file(video_path)
+    return not ok
+
+
 @app.get("/api/history")
 async def api_history(limit: int = 60):
-    items = db.list_jobs(limit)
+    items = [it for it in db.list_jobs(limit) if not _is_legacy_non_real_job(it)]
     for it in items:
         it["video_url"] = it.pop("video_path", "")
         it["thumb_url"] = it.pop("thumb_path", "")
@@ -521,6 +609,8 @@ async def api_history_item(job_id: str):
     job = db.get_job(job_id)
     if not job:
         raise HTTPException(404, "记录不存在")
+    if _is_legacy_non_real_job(job):
+        raise HTTPException(404, "旧版非真实渲染记录已停用")
     job["video_url"] = job.pop("video_path", "")
     job["thumb_url"] = job.pop("thumb_path", "")
     return job

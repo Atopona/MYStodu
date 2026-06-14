@@ -14,6 +14,11 @@ set -euo pipefail
 # https://*.trycloudflare.com URL for the local WebUI.
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -f "$ROOT/data/local_paths.env" ]; then
+  # Written by install_linux.sh when model directories are configured.
+  # shellcheck disable=SC1091
+  source "$ROOT/data/local_paths.env"
+fi
 VENV="${VENV:-$ROOT/.venv}"
 PY="$VENV/bin/python"
 PIP="$VENV/bin/pip"
@@ -136,11 +141,11 @@ ensure_python_env() {
 
 ensure_frontend() {
   if [ -f "$ROOT/frontend/dist/index.html" ]; then
+    log "using existing frontend/dist build"
     return
   fi
   if ! command -v npm >/dev/null 2>&1; then
-    warn "frontend/dist missing and npm not found; UI will be unavailable until built"
-    return
+    die "frontend/dist missing and npm not found; install Node.js/npm or run npm install && npm run build in frontend/"
   fi
   log "building frontend"
   (
@@ -233,6 +238,7 @@ ensure_frontend
 export CC_HOST="$HOST"
 export CC_PORT="$PORT"
 export CC_NO_BROWSER="$NO_BROWSER"
+export PYTHONUNBUFFERED="${PYTHONUNBUFFERED:-1}"
 
 mkdir -p "$ROOT/.tmp"
 log "local WebUI: http://$HOST:$PORT"

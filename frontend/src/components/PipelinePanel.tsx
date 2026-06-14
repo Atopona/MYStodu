@@ -64,24 +64,6 @@ function DistilBlock({
           onChange={(v) => onChange({ ...stage, strength: v })}
           fmt={(v) => v.toFixed(2)}
         />
-        <Slider
-          label="Visual"
-          value={stage.visual}
-          min={0}
-          max={1.5}
-          step={0.01}
-          onChange={(v) => onChange({ ...stage, visual: v })}
-          fmt={(v) => v.toFixed(2)}
-        />
-        <Slider
-          label="Audio"
-          value={stage.audio}
-          min={0}
-          max={1.5}
-          step={0.01}
-          onChange={(v) => onChange({ ...stage, audio: v })}
-          fmt={(v) => v.toFixed(2)}
-        />
       </div>
     </div>
   );
@@ -144,7 +126,7 @@ export default function PipelinePanel() {
       <div className="space-y-3">
         <ModelSlot
           label="text encoder / 文本编码器"
-          tag="CLIPLoader · GGUF/8bit"
+          tag="Gemma weights"
           value={p.text_encoder}
           options={m.text_encoders}
           onChange={(v) => s.setPipeline({ text_encoder: v })}
@@ -158,28 +140,28 @@ export default function PipelinePanel() {
         />
         <ModelSlot
           label="upscaler / 空间上采样"
-          tag="LatentUpsampler"
+          tag="two-stage x2"
           value={p.upscaler}
           options={m.upscalers}
           onChange={(v) => s.setPipeline({ upscaler: v })}
         />
         <ModelSlot
           label="audio vae / 音频 VAE"
-          tag="VAELoader"
+          tag="audio decoder"
           value={p.audio_vae}
           options={m.audio_vaes}
           onChange={(v) => s.setPipeline({ audio_vae: v })}
         />
         <ModelSlot
-          label="preview vae / 预览 VAE"
-          tag="vae · opt"
-          value={p.preview_vae}
-          options={m.preview_vaes}
-          onChange={(v) => s.setPipeline({ preview_vae: v })}
+          label="video vae / 视频 VAE"
+          tag="optional split VAE"
+          value={p.video_vae}
+          options={m.video_vaes || []}
+          onChange={(v) => s.setPipeline({ video_vae: v })}
         />
         <ModelSlot
           label="checkpoint / 主检查点"
-          tag="CheckpointLoaderSimple"
+          tag="LTX checkpoint"
           value={p.checkpoint}
           options={m.checkpoints}
           onChange={(v) => s.setPipeline({ checkpoint: v })}

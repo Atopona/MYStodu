@@ -147,7 +147,7 @@ export default function SettingsModal() {
             <Select
               value={f.llm_mode}
               onChange={(v) => up({ llm_mode: v as Settings["llm_mode"] })}
-              options={["embedded", "managed"]}
+              options={["embedded", "managed", "external"]}
             />
           </Field>
 

@@ -21,11 +21,13 @@ LLM_DIR="${LLM_DIR:-$ROOT/models/llm}"
 COMFY_MODEL_ROOT="${COMFY_MODEL_ROOT:-$ROOT/models/comfyui}"
 TMP_DIR="${TMP_DIR:-$ROOT/.tmp/linux-install}"
 
-PROMPT_REPO="${PROMPT_REPO:-SulphurAI/Sulphur-2-Prompt-Enhancer-GGUF}"
+PROMPT_REPO="${PROMPT_REPO:-SulphurAI/Sulphur-2-base}"
+PROMPT_GGUF="${PROMPT_GGUF:-prompt_enhancer_uncensored/prompt_enhancer_uncensored-q8_0.gguf}"
+PROMPT_MMPROJ="${PROMPT_MMPROJ:-prompt_enhancer_uncensored/mmproj-prompt_enhancer_uncensored.gguf}"
 BASE_REPO="${BASE_REPO:-Lightricks/LTX-2.3}"
 I2V_REPO="${I2V_REPO:-TenStrip/LTX2.3-10Eros}"
 T2V_REPO="${T2V_REPO:-SulphurAI/Sulphur-2-base}"
-DISTIL_REPO="${DISTIL_REPO:-Kijai/LTX2.3_Distilled_Lora_1.1_Experiments}"
+DISTIL_REPO="${DISTIL_REPO:-TenStrip/LTX2.3_Distilled_Lora_1.1_Experiments}"
 
 SKIP_MODEL_DOWNLOAD="${SKIP_MODEL_DOWNLOAD:-0}"
 INSTALL_COMFYUI="${INSTALL_COMFYUI:-0}"
@@ -91,36 +93,72 @@ fi
 
 if [ "$SKIP_MODEL_DOWNLOAD" != "1" ]; then
   log "downloading all configured model repos"
+  export PROMPT_REPO PROMPT_GGUF PROMPT_MMPROJ BASE_REPO I2V_REPO T2V_REPO DISTIL_REPO
   "$PY" - "$LLM_DIR" "$COMFY_MODEL_ROOT" <<'PY'
 import os
+import shutil
 import sys
 from pathlib import Path
 
-from huggingface_hub import snapshot_download
+from huggingface_hub import hf_hub_download, snapshot_download
 
 llm_dir = Path(sys.argv[1])
 comfy_root = Path(sys.argv[2])
 token = os.environ.get("HF_TOKEN") or None
 
 repos = {
-    "prompt": os.environ.get("PROMPT_REPO", "SulphurAI/Sulphur-2-Prompt-Enhancer-GGUF"),
+    "prompt": os.environ.get("PROMPT_REPO", "SulphurAI/Sulphur-2-base"),
     "base": os.environ.get("BASE_REPO", "Lightricks/LTX-2.3"),
     "i2v": os.environ.get("I2V_REPO", "TenStrip/LTX2.3-10Eros"),
     "t2v": os.environ.get("T2V_REPO", "SulphurAI/Sulphur-2-base"),
-    "distil": os.environ.get("DISTIL_REPO", "Kijai/LTX2.3_Distilled_Lora_1.1_Experiments"),
+    "distil": os.environ.get("DISTIL_REPO", "TenStrip/LTX2.3_Distilled_Lora_1.1_Experiments"),
 }
+prompt_files = [
+    os.environ.get("PROMPT_GGUF", "prompt_enhancer_uncensored/prompt_enhancer_uncensored-q8_0.gguf"),
+    os.environ.get("PROMPT_MMPROJ", "prompt_enhancer_uncensored/mmproj-prompt_enhancer_uncensored.gguf"),
+]
 
 def safe_name(repo: str) -> str:
     return repo.replace("/", "__")
 
-def snap(repo: str, dest: Path, patterns=None):
+def download_prompt_file(repo: str, filename: str, dest: Path) -> Path:
+    target = dest / Path(filename).name
+    if target.exists():
+        print(f"[install_linux] using existing {target}")
+        return target
+    print(f"[install_linux] file {repo}/{filename} -> {target}")
+    try:
+        downloaded = Path(hf_hub_download(
+            repo_id=repo,
+            filename=filename,
+            local_dir=str(dest),
+            token=token,
+        ))
+    except Exception as exc:
+        raise SystemExit(
+            f"Failed to download {repo}/{filename}: {exc}\n"
+            "If the repo is gated/private, set HF_TOKEN. "
+            "If the path changed, override PROMPT_REPO/PROMPT_GGUF/PROMPT_MMPROJ."
+        )
+    if downloaded.resolve() != target.resolve():
+        shutil.move(str(downloaded), target)
+        parent = downloaded.parent
+        while parent != dest and parent.exists():
+            try:
+                parent.rmdir()
+            except OSError:
+                break
+            parent = parent.parent
+    return target
+
+def snap(repo: str, dest: Path, patterns=None, ignore=None):
     print(f"[install_linux] snapshot {repo} -> {dest}")
     try:
         snapshot_download(
             repo_id=repo,
             local_dir=str(dest),
-            local_dir_use_symlinks=False,
             allow_patterns=patterns,
+            ignore_patterns=ignore,
             token=token,
         )
     except Exception as exc:
@@ -130,14 +168,22 @@ def snap(repo: str, dest: Path, patterns=None):
             "If the repo id changed, override PROMPT_REPO/BASE_REPO/I2V_REPO/T2V_REPO/DISTIL_REPO."
         )
 
-snap(repos["prompt"], llm_dir, ["*.gguf", "*.txt", "*.json", "*.md"])
+for filename in prompt_files:
+    download_prompt_file(repos["prompt"], filename, llm_dir)
 
 model_patterns = [
     "*.safetensors", "*.gguf", "*.json", "*.txt", "*.yaml", "*.yml", "*.md",
     "*.model", "*.bin", "*.pt", "*.pth",
 ]
-for key in ("base", "i2v", "t2v", "distil"):
-    snap(repos[key], comfy_root / safe_name(repos[key]), model_patterns)
+snap(repos["base"], comfy_root / safe_name(repos["base"]), model_patterns)
+snap(repos["i2v"], comfy_root / safe_name(repos["i2v"]), model_patterns)
+snap(
+    repos["t2v"],
+    comfy_root / safe_name(repos["t2v"]),
+    model_patterns,
+    ignore=["prompt_enhancer/*", "prompt_enhancer_uncensored/*"],
+)
+snap(repos["distil"], comfy_root / safe_name(repos["distil"]), model_patterns)
 
 ggufs = sorted(p for p in llm_dir.glob("*.gguf") if "mmproj" not in p.name.lower())
 mmprojs = sorted(p for p in llm_dir.glob("*.gguf") if "mmproj" in p.name.lower())

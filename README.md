@@ -107,12 +107,32 @@ Useful Linux environment variables:
 ```bash
 HF_TOKEN=hf_xxx bash install_linux.sh
 SKIP_MODEL_DOWNLOAD=1 bash install_linux.sh
-PROMPT_REPO=SulphurAI/Sulphur-2-Prompt-Enhancer-GGUF bash install_linux.sh
+PROMPT_REPO=SulphurAI/Sulphur-2-base bash install_linux.sh
 COMFY_MODEL_ROOT=/mnt/models/comfyui bash install_linux.sh
-DISTIL_REPO=Kijai/LTX2.3_Distilled_Lora_1.1_Experiments bash install_linux.sh
+DISTIL_REPO=TenStrip/LTX2.3_Distilled_Lora_1.1_Experiments bash install_linux.sh
 ```
 
 The script downloads the Prompt Enhancer GGUF/mmproj to `models/llm/`, downloads the LTX/10Eros/Sulphur model repos under `models/comfyui/` by default, and writes `llm_mode=embedded` into `data/console.db`.
+
+Verified default Hugging Face sources:
+
+```text
+Prompt repo:     SulphurAI/Sulphur-2-base
+Prompt GGUF:     prompt_enhancer_uncensored/prompt_enhancer_uncensored-q8_0.gguf
+Prompt mmproj:   prompt_enhancer_uncensored/mmproj-prompt_enhancer_uncensored.gguf
+Base LTX repo:   Lightricks/LTX-2.3
+I2V checkpoint:  TenStrip/LTX2.3-10Eros
+T2V checkpoint:  SulphurAI/Sulphur-2-base
+Distill LoRA:    TenStrip/LTX2.3_Distilled_Lora_1.1_Experiments
+```
+
+If you prefer the non-uncensored Prompt Enhancer variant, override:
+
+```bash
+PROMPT_GGUF=prompt_enhancer/sulphur_prompt_enhancer_model-q8_0.gguf \
+PROMPT_MMPROJ=prompt_enhancer/mmproj-BF16.gguf \
+bash install_linux.sh
+```
 
 ## Windows llama.cpp Compatibility Setup
 
@@ -132,7 +152,7 @@ setup_llm.bat
 ```
 
 ```bat
-set CC_LLM_REPO=SulphurAI/Sulphur-2-Prompt-Enhancer-GGUF
+set CC_LLM_REPO=SulphurAI/Sulphur-2-base
 setup_llm.bat
 ```
 

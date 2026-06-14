@@ -1,4 +1,4 @@
-"""Required local model files for the default Cinematic Console workflows."""
+"""Required local model files for the default Cinematic Console pipelines."""
 from __future__ import annotations
 
 import os
@@ -41,6 +41,7 @@ def required_llm_files() -> List[Dict[str, str]]:
 
 
 def required_render_files() -> List[Dict[str, str]]:
+    gemma_aux_repo = _env("GEMMA_AUX_REPO", "google/gemma-3-12b-it")
     return [
         {
             "key": "i2v_checkpoint",
@@ -52,7 +53,7 @@ def required_render_files() -> List[Dict[str, str]]:
         {
             "key": "text_encoder",
             "label": "Gemma 3 12B text encoder",
-            "category": "text_encoders",
+            "category": "gemma",
             "repo": _env("TEXT_ENCODER_REPO", "Comfy-Org/ltx-2"),
             "filename": _env(
                 "TEXT_ENCODER_MODEL",
@@ -60,9 +61,30 @@ def required_render_files() -> List[Dict[str, str]]:
             ),
         },
         {
+            "key": "gemma_tokenizer",
+            "label": "Gemma tokenizer",
+            "category": "gemma",
+            "repo": gemma_aux_repo,
+            "filename": _env("GEMMA_TOKENIZER_MODEL", "tokenizer.model"),
+        },
+        {
+            "key": "gemma_tokenizer_config",
+            "label": "Gemma tokenizer config",
+            "category": "gemma",
+            "repo": gemma_aux_repo,
+            "filename": _env("GEMMA_TOKENIZER_CONFIG", "tokenizer_config.json"),
+        },
+        {
+            "key": "gemma_preprocessor",
+            "label": "Gemma image preprocessor config",
+            "category": "gemma",
+            "repo": gemma_aux_repo,
+            "filename": _env("GEMMA_PREPROCESSOR_CONFIG", "preprocessor_config.json"),
+        },
+        {
             "key": "text_projection",
             "label": "LTX 2.3 text projection",
-            "category": "text_encoders",
+            "category": "text_projection",
             "repo": _env("TEXT_PROJECTION_REPO", "Kijai/LTX2.3_comfy"),
             "filename": _env(
                 "TEXT_PROJECTION_MODEL",

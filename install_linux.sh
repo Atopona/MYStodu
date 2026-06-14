@@ -6,6 +6,7 @@ set -euo pipefail
 # What it does:
 # - creates .venv and installs backend dependencies
 # - installs llama-cpp-python for in-process GGUF inference (no external LLM service)
+# - installs the official Lightricks LTX-2 local pipeline packages
 # - installs/builds the React frontend when npm is available
 # - downloads only the required Prompt Enhancer and LTX model files
 # - writes default settings for embedded LLM mode
@@ -19,8 +20,10 @@ PY="$VENV/bin/python"
 PIP="$VENV/bin/pip"
 
 LLM_DIR="${LLM_DIR:-$ROOT/models/llm}"
-COMFY_MODEL_ROOT="${COMFY_MODEL_ROOT:-$ROOT/models/comfyui}"
+LTX_MODEL_ROOT="${LTX_MODEL_ROOT:-$ROOT/models/ltx}"
 TMP_DIR="${TMP_DIR:-$ROOT/.tmp/linux-install}"
+LTX_REPO_URL="${LTX_REPO_URL:-https://github.com/Lightricks/LTX-2.git}"
+LTX_DIR="${LTX_DIR:-$ROOT/tools/LTX-2}"
 
 PROMPT_REPO="${PROMPT_REPO:-SulphurAI/Sulphur-2-base}"
 PROMPT_GGUF="${PROMPT_GGUF:-prompt_enhancer_uncensored/prompt_enhancer_uncensored-q8_0.gguf}"
@@ -29,6 +32,10 @@ BASE_REPO="${BASE_REPO:-Lightricks/LTX-2.3}"
 UPSCALER_MODEL="${UPSCALER_MODEL:-ltx-2.3-spatial-upscaler-x2-1.1.safetensors}"
 TEXT_ENCODER_REPO="${TEXT_ENCODER_REPO:-Comfy-Org/ltx-2}"
 TEXT_ENCODER_MODEL="${TEXT_ENCODER_MODEL:-split_files/text_encoders/gemma_3_12B_it_fp8_scaled.safetensors}"
+GEMMA_AUX_REPO="${GEMMA_AUX_REPO:-google/gemma-3-12b-it}"
+GEMMA_TOKENIZER_MODEL="${GEMMA_TOKENIZER_MODEL:-tokenizer.model}"
+GEMMA_TOKENIZER_CONFIG="${GEMMA_TOKENIZER_CONFIG:-tokenizer_config.json}"
+GEMMA_PREPROCESSOR_CONFIG="${GEMMA_PREPROCESSOR_CONFIG:-preprocessor_config.json}"
 TEXT_PROJECTION_REPO="${TEXT_PROJECTION_REPO:-Kijai/LTX2.3_comfy}"
 TEXT_PROJECTION_MODEL="${TEXT_PROJECTION_MODEL:-text_encoders/ltx-2.3_text_projection_bf16.safetensors}"
 I2V_REPO="${I2V_REPO:-TenStrip/LTX2.3-10Eros}"
@@ -41,8 +48,6 @@ AUDIO_VAE_REPO="${AUDIO_VAE_REPO:-novoluz/ltx2_audio_vae_bf16}"
 AUDIO_VAE_MODEL="${AUDIO_VAE_MODEL:-LTX2_audio_vae_bf16.safetensors}"
 
 SKIP_MODEL_DOWNLOAD="${SKIP_MODEL_DOWNLOAD:-0}"
-INSTALL_COMFYUI="${INSTALL_COMFYUI:-0}"
-COMFYUI_DIR="${COMFYUI_DIR:-$ROOT/ComfyUI}"
 
 log() {
   printf '\033[1;32m[install_linux]\033[0m %s\n' "$*"
@@ -62,7 +67,7 @@ need_cmd() {
 need_cmd python3
 need_cmd curl
 
-mkdir -p "$LLM_DIR" "$COMFY_MODEL_ROOT" "$TMP_DIR"
+mkdir -p "$LLM_DIR" "$LTX_MODEL_ROOT" "$TMP_DIR" "$ROOT/tools"
 
 if [ ! -x "$PY" ]; then
   log "creating Python venv at $VENV"
@@ -83,6 +88,18 @@ fi
 log "installing Hugging Face downloader"
 "$PIP" install --upgrade "huggingface_hub>=0.24"
 
+log "installing official LTX-2 local pipeline"
+need_cmd git
+if [ ! -d "$LTX_DIR/.git" ]; then
+  git clone --depth 1 "$LTX_REPO_URL" "$LTX_DIR"
+else
+  log "using existing $LTX_DIR"
+fi
+if command -v nvidia-smi >/dev/null 2>&1; then
+  "$PIP" install --upgrade "torch~=2.7" torchaudio --index-url https://download.pytorch.org/whl/cu128
+fi
+"$PIP" install -e "$LTX_DIR/packages/ltx-core" -e "$LTX_DIR/packages/ltx-pipelines"
+
 if command -v npm >/dev/null 2>&1; then
   log "installing/building frontend"
   (cd "$ROOT/frontend" && npm install --no-fund --no-audit && npm run build)
@@ -90,22 +107,10 @@ else
   warn "npm not found; backend will run, but frontend/dist will not be rebuilt"
 fi
 
-if [ "$INSTALL_COMFYUI" = "1" ]; then
-  need_cmd git
-  if [ ! -d "$COMFYUI_DIR/.git" ]; then
-    log "cloning ComfyUI into $COMFYUI_DIR"
-    git clone https://github.com/comfyanonymous/ComfyUI.git "$COMFYUI_DIR"
-  fi
-  if [ ! -d "$COMFYUI_DIR/custom_nodes/10S-Comfy-nodes" ]; then
-    log "cloning TenStrip custom nodes"
-    git clone https://github.com/TenStrip/10S-Comfy-nodes.git "$COMFYUI_DIR/custom_nodes/10S-Comfy-nodes"
-  fi
-fi
-
 if [ "$SKIP_MODEL_DOWNLOAD" != "1" ]; then
   log "downloading required model files only"
-  export PROMPT_REPO PROMPT_GGUF PROMPT_MMPROJ BASE_REPO UPSCALER_MODEL TEXT_ENCODER_REPO TEXT_ENCODER_MODEL TEXT_PROJECTION_REPO TEXT_PROJECTION_MODEL I2V_REPO I2V_CHECKPOINT T2V_REPO T2V_CHECKPOINT DISTIL_REPO DISTIL_LORA AUDIO_VAE_REPO AUDIO_VAE_MODEL
-  "$PY" - "$ROOT" "$LLM_DIR" "$COMFY_MODEL_ROOT" <<'PY'
+  export PROMPT_REPO PROMPT_GGUF PROMPT_MMPROJ BASE_REPO UPSCALER_MODEL TEXT_ENCODER_REPO TEXT_ENCODER_MODEL GEMMA_AUX_REPO GEMMA_TOKENIZER_MODEL GEMMA_TOKENIZER_CONFIG GEMMA_PREPROCESSOR_CONFIG TEXT_PROJECTION_REPO TEXT_PROJECTION_MODEL I2V_REPO I2V_CHECKPOINT T2V_REPO T2V_CHECKPOINT DISTIL_REPO DISTIL_LORA AUDIO_VAE_REPO AUDIO_VAE_MODEL
+  "$PY" - "$ROOT" "$LLM_DIR" "$LTX_MODEL_ROOT" <<'PY'
 import os
 import shutil
 import sys
@@ -115,7 +120,7 @@ from huggingface_hub import hf_hub_download
 
 root = Path(sys.argv[1])
 llm_dir = Path(sys.argv[2])
-comfy_root = Path(sys.argv[3])
+ltx_root = Path(sys.argv[3])
 sys.path.insert(0, str(root))
 
 from backend import db, local_models, model_manifest
@@ -157,7 +162,24 @@ for item in model_manifest.required_llm_files():
     download_file(item["repo"], item["filename"], llm_dir)
 
 for item in model_manifest.required_render_files():
-    download_file(item["repo"], item["filename"], comfy_root / item["category"])
+    download_file(item["repo"], item["filename"], ltx_root / item["category"])
+
+text_encoder = local_models.find_required_render_file("text_encoder")
+if text_encoder is not None:
+    alias = text_encoder.parent / "model.safetensors"
+    if not alias.exists() and not any(text_encoder.parent.rglob("model*.safetensors")):
+        try:
+            alias.symlink_to(text_encoder.name)
+            print(f"[install_linux] created Gemma alias {alias.name} -> {text_encoder.name}")
+        except OSError:
+            try:
+                os.link(text_encoder, alias)
+                print(f"[install_linux] created Gemma hardlink {alias.name}")
+            except OSError as exc:
+                raise SystemExit(
+                    f"Gemma text encoder downloaded, but could not create model.safetensors alias: {exc}\n"
+                    f"Create it manually in {text_encoder.parent}: ln -s {text_encoder.name} model.safetensors"
+                )
 
 ggufs = sorted(p for p in llm_dir.glob("*.gguf") if "mmproj" not in p.name.lower())
 mmprojs = sorted(p for p in llm_dir.glob("*.gguf") if "mmproj" in p.name.lower())
@@ -166,8 +188,6 @@ if ggufs:
         "llm_mode": "embedded",
         "llm_gguf": ggufs[0].name,
         "llm_mmproj": mmprojs[0].name if mmprojs else "",
-        "mock_llm": "auto",
-        "mock_comfy": "auto",
     })
     print(f"[install_linux] embedded LLM default: {ggufs[0].name}")
     if mmprojs:
@@ -204,7 +224,7 @@ Free Cloudflare tunnel:
   bash "$ROOT/start_linux.sh" --tunnel
 
 Notes:
-  - ComfyUI is optional. Without it, the project runs in Mock render mode.
+  - Rendering uses the official local LTX pipeline; no ComfyUI or placeholder renderer is started.
   - LLM default is embedded mode: GGUF loads inside the backend process.
   - Set HF_TOKEN for gated Hugging Face repositories.
 EOF

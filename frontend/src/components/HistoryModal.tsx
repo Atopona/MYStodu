@@ -105,11 +105,6 @@ export default function HistoryModal() {
                     <span className="absolute left-1 top-1 text-nano font-bold bg-ink/80 text-acid px-1 rounded-sm uppercase">
                       {it.mode}
                     </span>
-                    {it.meta?.mock && (
-                      <span className="absolute right-1 top-1 text-nano bg-ink/80 text-amber px-1 rounded-sm">
-                        mock
-                      </span>
-                    )}
                   </div>
                   <div className="p-1.5">
                     <div className="text-nano text-fog tabular-nums">{fmtDate(it.created_at)}</div>

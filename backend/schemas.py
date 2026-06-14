@@ -77,7 +77,6 @@ class RenderRequest(BaseModel):
 
 
 class SettingsPatch(BaseModel):
-    comfy_url: Optional[str] = None
     llm_mode: Optional[str] = None
     llama_server_path: Optional[str] = None
     llm_host: Optional[str] = None
@@ -93,8 +92,6 @@ class SettingsPatch(BaseModel):
     prompt_style: Optional[str] = None
     keep_timestamps: Optional[bool] = None
     negative_prompt: Optional[str] = None
-    mock_llm: Optional[str] = None
-    mock_comfy: Optional[str] = None
 
 
 class LlmStartRequest(BaseModel):

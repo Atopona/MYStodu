@@ -12,7 +12,7 @@ from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSock
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import comfy_client, config, db, jobs, llm_client, llm_embedded, llm_manager, local_models, mock, prompt_engine
+from . import config, db, jobs, llm_client, llm_embedded, llm_manager, local_models, ltx_local_renderer, prompt_engine
 from .schemas import GenerateRequest, LlmStartRequest, RefineRequest, RenderRequest, SettingsPatch
 
 # --------------------------------------------------------------- WS hub
@@ -65,8 +65,8 @@ embedded_manager = llm_embedded.EmbeddedLlamaManager(on_log=log)
 runner = jobs.JobRunner(broadcast=hub.broadcast_sync)
 
 _status_cache = {
-    "llm": {"state": "stopped", "detail": "", "mock": False},
-    "comfy": {"state": "down", "detail": "", "mock": False},
+    "llm": {"state": "stopped", "detail": ""},
+    "render": {"state": "down", "detail": ""},
 }
 
 
@@ -89,7 +89,6 @@ def llm_base_url(settings: dict) -> str:
 
 async def compute_status() -> dict:
     settings = db.get_settings()
-    comfy_up = await comfy_client.ping(settings["comfy_url"])
     if settings["llm_mode"] == "embedded":
         st = embedded_manager.status()
         llm_state = {**st, "mode": "embedded"}
@@ -110,17 +109,8 @@ async def compute_status() -> dict:
         llm_state = {**st, "mode": "managed"}
         llm_up = manager.state == "running"
 
-    mock_llm_setting = settings.get("mock_llm", "auto")
-    mock_comfy_setting = settings.get("mock_comfy", "auto")
-    llm_state["mock"] = mock_llm_setting == "on" or (mock_llm_setting == "auto" and not llm_up)
-    comfy_state = {
-        "state": "running" if comfy_up else "down",
-        "detail": settings["comfy_url"],
-        "mock": mock_comfy_setting == "on" or (mock_comfy_setting == "auto" and not comfy_up),
-        "url": settings["comfy_url"],
-    }
-    return {"type": "status", "llm": llm_state, "comfy": comfy_state,
-            "mock_llm": mock_llm_setting, "mock_comfy": mock_comfy_setting}
+    render_state = ltx_local_renderer.status()
+    return {"type": "status", "llm": llm_state, "render": render_state}
 
 
 async def status_loop() -> None:
@@ -130,9 +120,9 @@ async def status_loop() -> None:
             st = await compute_status()
             changed = (
                 st["llm"].get("state") != _status_cache["llm"].get("state")
-                or st["comfy"].get("state") != _status_cache["comfy"].get("state")
+                or st["render"].get("state") != _status_cache["render"].get("state")
             )
-            _status_cache = {"llm": st["llm"], "comfy": st["comfy"]}
+            _status_cache = {"llm": st["llm"], "render": st["render"]}
             await hub.broadcast(st)
             if changed:
                 pass
@@ -150,15 +140,8 @@ async def lifespan(app: FastAPI):
     runner.start()
     status_task = asyncio.create_task(status_loop())
     log("Console ready. Load a workflow, generate a prompt, hit Render.")
-    try:
-        node_map = comfy_client.load_node_map()
-        for mode_key in ("i2v", "t2v"):
-            m = node_map.get(mode_key)
-            if m:
-                wf = comfy_client.load_template(m["template"])
-                log(f"Workflow loaded — {m['template']} · {len(wf)} nodes · map OK ({mode_key.upper()})")
-    except Exception as exc:  # noqa: BLE001
-        log(f"workflow templates: {exc}", "warn")
+    render_state = ltx_local_renderer.status()
+    log(f"Local LTX renderer status — {render_state['detail']}", "info" if render_state["state"] == "running" else "warn")
     settings = db.get_settings()
     if settings.get("auto_start_llm") and settings["llm_mode"] in ("embedded", "managed"):
         if settings["llm_mode"] == "embedded":
@@ -294,7 +277,7 @@ async def api_llm_stop():
     return st
 
 
-# ---------------------------------------------------------------- comfy
+# ----------------------------------------------------------- local models
 
 
 @app.get("/api/models")
@@ -354,77 +337,61 @@ def _camera_suggestion(beats: List[dict]) -> str:
 
 async def _llm_generate(req: GenerateRequest, refine: Optional[RefineRequest] = None) -> dict:
     settings = db.get_settings()
-    mock_setting = settings.get("mock_llm", "auto")
     image_path = None
     if req.mode == "i2v" and req.image_id:
         p = os.path.join(config.UPLOAD_DIR, os.path.basename(req.image_id))
         image_path = p if os.path.exists(p) else None
 
-    use_real = mock_setting == "off" or (mock_setting == "auto" and await llm_ready(settings))
-    used_mock = False
     text = ""
     model_label = ""
 
-    if use_real:
-        style = _resolve_style(settings, image_path is not None)
-        system_prompt = prompt_engine.DIRECTOR_SYSTEM_PROMPT if style == "director" else None
-        if refine is not None:
-            user_text = prompt_engine.build_refine_user_text(refine.prompt, refine.instruction)
-        else:
-            user_text = prompt_engine.build_generation_user_text(
-                intent=req.intent, duration=req.duration, fps=req.fps,
-                shot_type=req.shot_type, dialogue=req.dialogue, fov=req.fov,
-                choreo=req.choreo, lora_triggers=req.lora_triggers,
-                mode=req.mode, has_image=image_path is not None,
-            )
-        messages = llm_client.build_messages(
-            system_prompt=system_prompt, user_text=user_text, image_path=image_path
+    style = _resolve_style(settings, image_path is not None)
+    system_prompt = prompt_engine.DIRECTOR_SYSTEM_PROMPT if style == "director" else None
+    if refine is not None:
+        user_text = prompt_engine.build_refine_user_text(refine.prompt, refine.instruction)
+    else:
+        user_text = prompt_engine.build_generation_user_text(
+            intent=req.intent, duration=req.duration, fps=req.fps,
+            shot_type=req.shot_type, dialogue=req.dialogue, fov=req.fov,
+            choreo=req.choreo, lora_triggers=req.lora_triggers,
+            mode=req.mode, has_image=image_path is not None,
         )
-        temperature = 0.2 + max(0.0, min(1.0, req.creativity)) * 1.2
-        try:
-            log(f"LLM {'refine' if refine else 'generate'} — mode={settings['llm_mode']}, style={style}, temp={temperature:.2f}")
-            if settings["llm_mode"] == "embedded":
-                text = await asyncio.to_thread(
-                    embedded_manager.chat,
-                    settings,
-                    messages,
-                    temperature=temperature,
-                )
-            else:
-                text = await llm_client.chat(
-                    llm_base_url(settings), messages,
-                    temperature=temperature, api_key=settings.get("llm_api_key", ""),
-                )
-            model_label = settings.get("llm_gguf") or settings.get("llm_mode", "embedded")
-        except (llm_client.LlmError, RuntimeError) as exc:
-            if mock_setting == "off":
-                raise HTTPException(502, f"LLM 调用失败：{exc}")
-            log(f"LLM unavailable ({exc}) — falling back to mock prompt", "warn")
-            use_real = False
-
-    if not use_real:
-        used_mock = True
-        model_label = "mock"
-        if refine is not None:
-            text = mock.mock_refine(refine.prompt, refine.instruction)
-        else:
-            text = mock.mock_generate(
-                intent=req.intent, duration=req.duration, shot_type=req.shot_type,
-                dialogue=req.dialogue, fov=req.fov, choreo=req.choreo,
-                lora_triggers=req.lora_triggers, creativity=req.creativity, mode=req.mode,
+    messages = llm_client.build_messages(
+        system_prompt=system_prompt, user_text=user_text, image_path=image_path
+    )
+    temperature = 0.2 + max(0.0, min(1.0, req.creativity)) * 1.2
+    try:
+        log(f"LLM {'refine' if refine else 'generate'} — mode={settings['llm_mode']}, style={style}, temp={temperature:.2f}")
+        if settings["llm_mode"] == "embedded":
+            text = await asyncio.to_thread(
+                embedded_manager.chat,
+                settings,
+                messages,
+                temperature=temperature,
             )
-        await asyncio.sleep(0.7)  # tiny beat so the UI's working state is visible
+        else:
+            if settings["llm_mode"] == "managed" and not await llm_ready(settings):
+                st = await asyncio.to_thread(manager.start, settings)
+                if st.get("state") == "error":
+                    raise RuntimeError(st.get("detail") or "managed llama-server failed to start")
+            text = await llm_client.chat(
+                llm_base_url(settings), messages,
+                temperature=temperature, api_key=settings.get("llm_api_key", ""),
+            )
+        model_label = settings.get("llm_gguf") or settings.get("llm_mode", "embedded")
+    except (llm_client.LlmError, RuntimeError) as exc:
+        log(f"LLM failed: {exc}", "error")
+        raise HTTPException(502, f"LLM 调用失败：{exc}") from exc
 
     text = prompt_engine.ensure_beats(text, req.duration)
     beats = prompt_engine.parse_beats(text)
     words = prompt_engine.word_count(text)
-    log(f"prompt {'refined' if refine else 'generated'} — {len(beats)} beats · {words} words" + (" · MOCK" if used_mock else ""))
+    log(f"prompt {'refined' if refine else 'generated'} — {len(beats)} beats · {words} words")
     log(f"\U0001F4F7 Camera LoRA suggestion: {_camera_suggestion(beats)}")
     return {
         "prompt": text,
         "beats": beats,
         "words": words,
-        "used_mock": used_mock,
         "model": model_label,
     }
 
@@ -477,12 +444,6 @@ async def api_render(req: RenderRequest):
     p = req.params
     p.frames = config.snap_frames(p.duration, p.fps)
 
-    mock_setting = settings.get("mock_comfy", "auto")
-    comfy_up = await comfy_client.ping(settings["comfy_url"])
-    if mock_setting == "off" and not comfy_up:
-        raise HTTPException(502, f"外部渲染服务不可达：{settings['comfy_url']} — 请检查地址，或把渲染模式设为 Mock/auto")
-    use_mock = mock_setting == "on" or (mock_setting == "auto" and not comfy_up)
-
     image_path = None
     if req.image_id:
         cand = os.path.join(config.UPLOAD_DIR, os.path.basename(req.image_id))
@@ -490,29 +451,48 @@ async def api_render(req: RenderRequest):
         if req.mode == "i2v" and image_path is None:
             raise HTTPException(400, "参考图已失效，请重新上传")
 
+    try:
+        ltx_local_renderer.validate_and_resolve(req.mode, req.pipeline.model_dump())
+    except ltx_local_renderer.LocalRenderError as exc:
+        raise HTTPException(502, str(exc)) from exc
+
     meta = {
         "seed": seed, "frames": p.frames, "width": p.width, "height": p.height,
-        "fps": p.fps, "duration": p.duration, "mock": use_mock,
+        "fps": p.fps, "duration": p.duration, "renderer": "local-ltx",
         "words": prompt_engine.word_count(req.prompt),
         "keep_timestamps": keep_ts,
         "image_id": req.image_id or "",
     }
     params_snapshot = req.ui_snapshot or {}
     job_id = db.create_job(req.mode, req.prompt, params_snapshot, meta)
+    try:
+        ltx_spec = ltx_local_renderer.build_job_spec(
+            job_id=job_id,
+            mode=req.mode,
+            final_prompt=final_prompt,
+            negative_prompt=settings.get("negative_prompt", ""),
+            image_path=image_path,
+            params=p.model_dump(),
+            pipeline=req.pipeline.model_dump(),
+            seed=seed,
+        )
+    except ltx_local_renderer.LocalRenderError as exc:
+        db.update_job(job_id, status="error", phase="error", error=str(exc))
+        raise HTTPException(502, str(exc)) from exc
 
     await runner.enqueue(job_id, {
         "mode": req.mode,
-        "use_mock": use_mock,
         "seed": seed,
         "final_prompt": final_prompt,
         "image_path": image_path,
         "params": p.model_dump(),
         "pipeline": req.pipeline.model_dump(),
         "meta": meta,
+        "ltx_spec": ltx_spec,
     })
     log(f"job {job_id} queued — {req.mode.upper()} · {p.width}x{p.height} · {p.frames}f @ {p.fps}fps · seed {seed}"
-        + (" · MOCK" if use_mock else ""))
-    return {"job_id": job_id, "seed": seed, "frames": p.frames, "mock": use_mock}
+        + " · LOCAL LTX")
+    return {"job_id": job_id, "seed": seed, "frames": p.frames, "renderer": "local-ltx"}
 
 
 @app.post("/api/jobs/{job_id}/cancel")

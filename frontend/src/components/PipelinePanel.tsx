@@ -122,7 +122,7 @@ export default function PipelinePanel() {
     <div className="h-full overflow-y-auto px-3 py-3 space-y-4">
       <SectionTitle
         label="Pipeline / 管线"
-        hint="models/comfyui 本地扫描"
+        hint="models/ltx 本地扫描"
       />
 
       {missing.length > 0 && (
@@ -136,7 +136,7 @@ export default function PipelinePanel() {
             </div>
           ))}
           <div className="text-dim/90 mt-1 truncate" title={m.model_root || ""}>
-            扫描目录：{m.model_root || "models/comfyui"}
+            扫描目录：{m.model_root || "models/ltx"}
           </div>
         </div>
       )}

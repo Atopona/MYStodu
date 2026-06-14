@@ -17,8 +17,7 @@ export default function TopBar() {
 
   const llmState =
     s.llm.state === "running" ? "ok" : s.llm.state === "starting" ? "warn" : "err";
-  const comfyState = s.comfy.state === "running" ? "ok" : s.comfy.mock ? "warn" : "err";
-  const mockActive = !!(s.llm.mock || s.comfy.mock);
+  const renderState = s.renderService.state === "running" ? "ok" : "err";
 
   return (
     <header className="h-11 shrink-0 border-b border-line bg-panel flex items-center px-3 gap-3">
@@ -54,20 +53,12 @@ export default function TopBar() {
           <Capsule k="RES" v={`${res.width}×${res.height}`} />
           <Capsule k="SEED" v={s.seed ? s.seed.slice(0, 6) + "…" : "rand"} />
         </div>
-        {mockActive && (
-          <span
-            title="本地模型或外部渲染服务不可用时，内置离线流程仍可端到端运行"
-            className="text-nano font-bold tracking-[0.18em] px-1.5 py-[2px] rounded-sm border border-amber/60 text-amber bg-amber/10"
-          >
-            LOCAL / 离线
-          </span>
-        )}
       </div>
 
       {/* right: status lights + settings */}
       <div className="flex items-center gap-1">
         <StatusDot state={llmState} label="LLM" onClick={() => s.reconnectLlm()} />
-        <StatusDot state={comfyState} label="RENDER" onClick={() => s.reconnectComfy()} />
+        <StatusDot state={renderState} label="RENDER" onClick={() => s.reconnectRender()} />
         <button
           type="button"
           title="设置"

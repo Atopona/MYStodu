@@ -29,7 +29,7 @@ let toastId = 1;
 export interface ConsoleState {
   // services
   llm: ServiceStatus;
-  comfy: ServiceStatus;
+  renderService: ServiceStatus;
   wsConnected: boolean;
   // meta
   shotTypes: string[];
@@ -108,7 +108,7 @@ export interface ConsoleState {
   snapshot: () => any;
   distilConflict: () => boolean;
   reconnectLlm: () => Promise<void>;
-  reconnectComfy: () => Promise<void>;
+  reconnectRender: () => Promise<void>;
 }
 
 const defaultDistil = (model = "") => ({
@@ -131,9 +131,47 @@ const initialPipeline: Pipeline = {
   loras: [],
 };
 
+const validOrEmpty = (value: string, options: string[]) =>
+  value && options.includes(value) ? value : "";
+
+const sanitizePipeline = (pipeline: Pipeline, models: ModelLists): Pipeline => ({
+  ...pipeline,
+  text_encoder: validOrEmpty(pipeline.text_encoder, models.text_encoders),
+  text_projection: validOrEmpty(pipeline.text_projection, models.text_projections),
+  upscaler: validOrEmpty(pipeline.upscaler, models.upscalers),
+  audio_vae: validOrEmpty(pipeline.audio_vae, models.audio_vaes),
+  preview_vae: validOrEmpty(pipeline.preview_vae, models.preview_vaes),
+  checkpoint: validOrEmpty(pipeline.checkpoint, models.checkpoints),
+  distil1: {
+    ...pipeline.distil1,
+    model: validOrEmpty(pipeline.distil1.model, models.loras),
+  },
+  distil2: {
+    ...pipeline.distil2,
+    model: validOrEmpty(pipeline.distil2.model, models.loras),
+  },
+  loras: pipeline.loras.filter((l) => models.loras.includes(l.name)),
+});
+
+const fillPipelineDefaults = (pipeline: Pipeline, models: ModelLists): Pipeline => ({
+  ...pipeline,
+  text_encoder: pipeline.text_encoder || models.text_encoders[0] || "",
+  text_projection: pipeline.text_projection || models.text_projections[0] || "",
+  upscaler: pipeline.upscaler || models.upscalers[0] || "",
+  audio_vae: pipeline.audio_vae || models.audio_vaes[0] || "",
+  preview_vae: pipeline.preview_vae || models.preview_vaes[0] || "",
+  checkpoint: pipeline.checkpoint || models.checkpoints[0] || "",
+  distil1: pipeline.distil1.model
+    ? pipeline.distil1
+    : { ...defaultDistil(models.loras[0] || ""), visual: 0.85 },
+  distil2: pipeline.distil2.model
+    ? pipeline.distil2
+    : { ...defaultDistil(models.loras[0] || ""), visual: 0.64 },
+});
+
 export const useStore = create<ConsoleState>((set, get) => ({
-  llm: { state: "stopped", mock: true },
-  comfy: { state: "down", mock: true, url: "http://127.0.0.1:8188" },
+  llm: { state: "stopped" },
+  renderService: { state: "down", url: "" },
   wsConnected: false,
   shotTypes: ["CINEMATIC"],
   resolutions: [{ label: "1280 x 720", width: 1280, height: 720 }],
@@ -202,7 +240,7 @@ export const useStore = create<ConsoleState>((set, get) => ({
     const s = get();
     switch (msg.type) {
       case "status":
-        set({ llm: msg.llm, comfy: msg.comfy });
+        set({ llm: msg.llm, renderService: msg.render });
         break;
       case "log":
         set({
@@ -259,7 +297,7 @@ export const useStore = create<ConsoleState>((set, get) => ({
     await Promise.all([get().refreshModels(), get().refreshLlmModels()]);
     try {
       const st = await api.status();
-      set({ llm: st.llm, comfy: st.comfy });
+      set({ llm: st.llm, renderService: st.render });
     } catch {
       /* ws will update */
     }
@@ -269,25 +307,22 @@ export const useStore = create<ConsoleState>((set, get) => ({
     } catch {
       /* fresh start */
     }
-    // sensible pipeline defaults once models arrive
+    // Drop stale saved model names, then choose defaults from real local files.
     const s = get();
-    if (s.models && !s.pipeline.checkpoint) {
-      const m = s.models;
-      get().setPipeline({
-        text_encoder: m.text_encoders[0] || "",
-        text_projection: m.text_projections[0] || "",
-        upscaler: m.upscalers[0] || "",
-        audio_vae: m.audio_vaes[0] || "",
-        preview_vae: m.preview_vaes[0] || "",
-        checkpoint: m.checkpoints[0] || "",
-        distil1: { ...defaultDistil(m.loras[0] || ""), visual: 0.85 },
-        distil2: { ...defaultDistil(m.loras[0] || ""), visual: 0.64 },
-      });
+    if (s.models) {
+      const pipeline = fillPipelineDefaults(sanitizePipeline(s.pipeline, s.models), s.models);
+      set({ pipeline });
     }
-    if (!s.gguf && s.llmModels.ggufs.length) {
+    const afterModels = get();
+    const gguf = validOrEmpty(afterModels.gguf, afterModels.llmModels.ggufs);
+    const mmproj = validOrEmpty(afterModels.mmproj, afterModels.llmModels.mmprojs);
+    if (gguf !== afterModels.gguf || mmproj !== afterModels.mmproj) {
+      set({ gguf, mmproj });
+    }
+    if (!get().gguf && get().llmModels.ggufs.length) {
       set({
-        gguf: s.llmModels.ggufs[0],
-        mmproj: s.llmModels.mmprojs[0] || "",
+        gguf: get().llmModels.ggufs[0],
+        mmproj: get().llmModels.mmprojs[0] || "",
       });
     }
   },
@@ -295,7 +330,10 @@ export const useStore = create<ConsoleState>((set, get) => ({
   refreshModels: async () => {
     try {
       const models = await api.models();
-      set({ models });
+      set((s) => ({
+        models,
+        pipeline: fillPipelineDefaults(sanitizePipeline(s.pipeline, models), models),
+      }));
     } catch (e: any) {
       get().toast(`模型列表获取失败：${e.message}`, "err");
     }
@@ -304,7 +342,11 @@ export const useStore = create<ConsoleState>((set, get) => ({
   refreshLlmModels: async () => {
     try {
       const lm = await api.llmModels();
-      set({ llmModels: lm });
+      set((s) => ({
+        llmModels: lm,
+        gguf: validOrEmpty(s.gguf, lm.ggufs),
+        mmproj: validOrEmpty(s.mmproj, lm.mmprojs),
+      }));
     } catch {
       /* non-fatal */
     }
@@ -345,7 +387,7 @@ export const useStore = create<ConsoleState>((set, get) => ({
         prompt: res.prompt,
         beats: res.beats,
         statusLine: {
-          text: `Prompt ready — edit or Render.${res.used_mock ? "  (mock LLM)" : ""}`,
+          text: "Prompt ready — edit or Render.",
           tone: "ok",
         },
       });
@@ -396,7 +438,7 @@ export const useStore = create<ConsoleState>((set, get) => ({
         prompt: res.prompt,
         beats: res.beats,
         statusLine: {
-          text: `Refined — ${res.words} words.${res.used_mock ? "  (mock LLM)" : ""}`,
+          text: `Refined — ${res.words} words.`,
           tone: "ok",
         },
       });
@@ -480,10 +522,9 @@ export const useStore = create<ConsoleState>((set, get) => ({
           phase: "queued",
           pct: 0,
           seed: res.seed,
-          mock: res.mock,
         },
         statusLine: {
-          text: `Rendering — job ${res.job_id}${res.mock ? " (mock)" : ""}.`,
+          text: `Rendering — job ${res.job_id}.`,
           tone: "warn",
         },
       });
@@ -595,21 +636,21 @@ export const useStore = create<ConsoleState>((set, get) => ({
     }
     try {
       const st = await api.status();
-      set({ llm: st.llm, comfy: st.comfy });
+      set({ llm: st.llm, renderService: st.render });
     } catch {
       /* ignore */
     }
   },
 
-  reconnectComfy: async () => {
+  reconnectRender: async () => {
     try {
       const st = await api.status();
-      set({ llm: st.llm, comfy: st.comfy });
-      if (st.comfy.state === "running") {
-        get().toast("外部渲染服务已连接", "ok");
+      set({ llm: st.llm, renderService: st.render });
+      if (st.render.state === "running") {
+        get().toast("本地 LTX 渲染器已就绪", "ok");
         await get().refreshModels();
       } else {
-        get().toast(`外部渲染服务不可达：${st.comfy.url}（本地离线流程可用）`, "warn");
+        get().toast(st.render.detail || "本地 LTX 渲染器尚未就绪", "warn");
       }
     } catch (e: any) {
       get().toast(e.message, "err");

@@ -1,231 +1,184 @@
 # Cinematic Console LD
 
-Cinematic Console LD is a local WebUI for LTX 2.3 video generation. It runs a FastAPI backend and a Vite/React control surface at `http://127.0.0.1:7860`, with embedded LLM support and local Mock rendering so the whole flow can be tested on a clean machine. The UI is bilingual English/Chinese for the main workflow controls.
+Cinematic Console LD is a local WebUI for LTX 2.3 video generation. It serves a FastAPI backend and a Vite/React control surface at `http://127.0.0.1:7860`.
+
+The current render path is local LTX only: no ComfyUI server is required, and there is no placeholder renderer. If the LTX dependencies or model files are missing, the UI reports the exact missing item instead of producing a fake video.
 
 ## Quick Start
 
-```bat
-start.bat
-```
-
-or:
-
-```bat
-python run.py
-```
-
-`start.bat` creates `.venv`, installs Python dependencies, builds the frontend when needed, then starts the backend. The backend serves the built React app from `frontend/dist`.
-
-Linux install:
+Linux:
 
 ```bash
 bash install_linux.sh
 bash start_linux.sh
 ```
 
-`install_linux.sh` installs the embedded LLM runtime (`llama-cpp-python`), builds the frontend when `npm` is available, and downloads only the exact GGUF/mmproj plus LTX/10Eros/Sulphur files required by the default workflows. The current Windows workspace does not need to run it unless you intentionally want to download those large files here.
+Open:
 
-Linux daily start:
-
-```bash
-bash start_linux.sh
+```text
+http://127.0.0.1:7860
 ```
 
-The start script creates `.venv` if needed, installs backend dependencies when missing, builds `frontend/dist` when needed, then starts the WebUI on `http://127.0.0.1:7860`.
-
-## Cloudflare Free Tunnel
-
-For a temporary public URL without configuring a domain or a Cloudflare account, use Cloudflare Quick Tunnel:
+Free Cloudflare Quick Tunnel:
 
 ```bash
 bash start_linux.sh --tunnel
 ```
 
-or:
+Windows development start:
 
-```bash
-CC_TUNNEL=cloudflare bash start_linux.sh
+```bat
+start.bat
 ```
 
-The script downloads `cloudflared` into `tools/cloudflared/` if it is not already installed, starts:
-
-```bash
-cloudflared tunnel --url http://127.0.0.1:7860
-```
-
-and prints the generated `https://*.trycloudflare.com` URL. Useful options:
-
-```bash
-bash start_linux.sh --host 127.0.0.1 --port 9000 --tunnel
-CC_TUNNEL_TARGET=http://127.0.0.1:9000 bash start_linux.sh --port 9000 --tunnel
-CLOUDFLARED_BIN=/usr/local/bin/cloudflared bash start_linux.sh --tunnel
-```
-
-Quick Tunnel URLs are temporary. For production or a stable custom hostname, use Cloudflare named tunnels outside this script.
+Windows can launch the WebUI, but the fully automated model and LTX dependency installer is `install_linux.sh`.
 
 ## Architecture
 
-- `backend/main.py`: FastAPI app, REST endpoints, WebSocket status/log stream, static frontend hosting.
-- `backend/llm_embedded.py`: preferred in-process llama.cpp runtime via `llama-cpp-python`; this loads GGUF inside the backend process and does not require an external LLM service.
-- `backend/llm_manager.py`: compatibility fallback for a project-local `llama-server` subprocess.
-- `backend/llm_client.py`: OpenAI-compatible chat completions, including base64 `image_url` input.
-- `backend/local_models.py`: direct local model scanning for `models/llm/` and `models/comfyui/`.
-- `backend/comfy_client.py`: optional ComfyUI `/prompt`, `/ws`, `/history`, upload and download helpers for real external rendering.
-- `backend/jobs.py`: one-at-a-time render queue, WebSocket progress, mock and real render paths.
-- `backend/db.py`: SQLite settings and render history in `data/console.db`.
-- `backend/workflows/`: API-format ComfyUI templates plus node mapping.
-- `frontend/src/`: four-column React console: Pipeline, Director Input, Generated Prompt, Render Bay.
+- `backend/main.py`: FastAPI app, REST API, WebSocket status/log events.
+- `backend/llm_embedded.py`: in-process llama.cpp GGUF runtime through `llama-cpp-python`.
+- `backend/llm_manager.py`: managed `llama-server` compatibility mode.
+- `backend/ltx_local_renderer.py`: validates local model files and launches real LTX render jobs.
+- `backend/ltx_runner.py`: programmatic wrapper around official `TI2VidTwoStagesHQPipeline`; it loads the selected checkpoint together with split text projection and audio VAE files.
+- `backend/local_models.py`: scans `models/ltx/` and `models/llm/` for actual local files.
+- `backend/jobs.py`: one-at-a-time render queue, cancellation, WebSocket progress, and final video/thumbnail persistence.
+- `frontend/src/`: four-panel console UI.
+- `outputs/`: generated MP4 files and thumbnails.
+- `uploads/`: uploaded I2V reference images.
 
-## Mock Flow
+## Local LTX Renderer
 
-Mock mode is the default fallback when LLM or ComfyUI are unreachable. In the UI:
+The renderer uses the official Lightricks packages:
 
-1. Upload a reference image in I2V mode.
-2. Click `GENERATE` to produce a beat-based prompt.
-3. Enter a Refine instruction and click `REFINE`.
-4. Adjust sliders or pipeline options.
-5. Click `RENDER`.
-6. Watch queue progress, live preview frames, final placeholder video, and history reuse.
+- `ltx-core`
+- `ltx-pipelines`
+- PyTorch / torchaudio
+- `av`
+- `openimageio`
 
-The mock renderer uses `ffmpeg` through `imageio-ffmpeg` when system ffmpeg is unavailable.
-
-### Local Model Detection
-
-The Pipeline panel and LLM selector scan local disk directly. They show only files that actually exist under `models/comfyui/` and `models/llm/`. If required files are missing, the UI lists the missing filenames instead of showing placeholder model names.
-
-## Embedded LLM And Prompt Enhancer Setup
-
-The preferred mode is `embedded`: the backend process loads the GGUF directly with `llama-cpp-python`. You do not need to start llama-server, LM Studio, Ollama, or any external OpenAI-compatible service.
-
-On Linux, run:
+`install_linux.sh` clones `https://github.com/Lightricks/LTX-2.git` into `tools/LTX-2` and installs:
 
 ```bash
-bash install_linux.sh
+pip install -e tools/LTX-2/packages/ltx-core -e tools/LTX-2/packages/ltx-pipelines
 ```
 
-Useful Linux environment variables:
+The backend launches:
 
 ```bash
-HF_TOKEN=hf_xxx bash install_linux.sh
-SKIP_MODEL_DOWNLOAD=1 bash install_linux.sh
-PROMPT_REPO=SulphurAI/Sulphur-2-base bash install_linux.sh
-TEXT_ENCODER_REPO=Comfy-Org/ltx-2 bash install_linux.sh
-TEXT_PROJECTION_REPO=Kijai/LTX2.3_comfy bash install_linux.sh
-COMFY_MODEL_ROOT=/mnt/models/comfyui bash install_linux.sh
-DISTIL_REPO=TenStrip/LTX2.3_Distilled_Lora_1.1_Experiments bash install_linux.sh
+python -m backend.ltx_runner ...
 ```
 
-The script downloads exact required files, not full model repositories. Prompt Enhancer files go to `models/llm/`; render model files go to `models/comfyui/checkpoints/`, `models/comfyui/upscale_models/`, `models/comfyui/vae/`, and `models/comfyui/loras/`. It also writes `llm_mode=embedded` into `data/console.db`.
+This wrapper still uses the official `TI2VidTwoStagesHQPipeline`; it only adds the project-specific model bundle plumbing needed by the UI.
 
-Verified default Hugging Face sources:
+## Required Model Files
+
+The installer downloads exact files only. It does not snapshot full 100GB+ repositories.
+
+Prompt LLM files go under:
 
 ```text
-LLM GGUF:        SulphurAI/Sulphur-2-base/prompt_enhancer_uncensored/prompt_enhancer_uncensored-q8_0.gguf
-LLM mmproj:      SulphurAI/Sulphur-2-base/prompt_enhancer_uncensored/mmproj-prompt_enhancer_uncensored.gguf
-I2V checkpoint:  TenStrip/LTX2.3-10Eros/10Eros_v1-fp8mixed_learned.safetensors
-Text encoder:    Comfy-Org/ltx-2/split_files/text_encoders/gemma_3_12B_it_fp8_scaled.safetensors
-Text projection: Kijai/LTX2.3_comfy/text_encoders/ltx-2.3_text_projection_bf16.safetensors
-T2V checkpoint:  SulphurAI/Sulphur-2-base/sulphur_dev_fp8mixed.safetensors
-Spatial upscale: Lightricks/LTX-2.3/ltx-2.3-spatial-upscaler-x2-1.1.safetensors
-Audio VAE:       novoluz/ltx2_audio_vae_bf16/LTX2_audio_vae_bf16.safetensors
-Distill LoRA:    TenStrip/LTX2.3_Distilled_Lora_1.1_Experiments/ltx-2.3-22b-distilled-lora-1.1_fro90_ceil72_condsafe.safetensors
+models/llm/
 ```
 
-If you prefer the non-uncensored Prompt Enhancer variant, override:
+Render files go under:
+
+```text
+models/ltx/checkpoints/
+models/ltx/gemma/
+models/ltx/text_projection/
+models/ltx/upscale_models/
+models/ltx/vae/
+models/ltx/loras/
+```
+
+Required render files:
+
+```text
+I2V checkpoint:
+  TenStrip/LTX2.3-10Eros/10Eros_v1-fp8mixed_learned.safetensors
+
+T2V checkpoint:
+  SulphurAI/Sulphur-2-base/sulphur_dev_fp8mixed.safetensors
+
+Gemma text encoder weights:
+  Comfy-Org/ltx-2/split_files/text_encoders/gemma_3_12B_it_fp8_scaled.safetensors
+
+Gemma auxiliary files:
+  google/gemma-3-12b-it/tokenizer.model
+  google/gemma-3-12b-it/tokenizer_config.json
+  google/gemma-3-12b-it/preprocessor_config.json
+
+Text projection:
+  Kijai/LTX2.3_comfy/text_encoders/ltx-2.3_text_projection_bf16.safetensors
+
+Spatial upscaler:
+  Lightricks/LTX-2.3/ltx-2.3-spatial-upscaler-x2-1.1.safetensors
+
+Audio VAE:
+  novoluz/ltx2_audio_vae_bf16/LTX2_audio_vae_bf16.safetensors
+
+Cond-safe distill LoRA:
+  TenStrip/LTX2.3_Distilled_Lora_1.1_Experiments/ltx-2.3-22b-distilled-lora-1.1_fro90_ceil72_condsafe.safetensors
+```
+
+Required prompt LLM files:
+
+```text
+SulphurAI/Sulphur-2-base/prompt_enhancer_uncensored/prompt_enhancer_uncensored-q8_0.gguf
+SulphurAI/Sulphur-2-base/prompt_enhancer_uncensored/mmproj-prompt_enhancer_uncensored.gguf
+```
+
+If a Hugging Face repository is gated or private, set:
 
 ```bash
-PROMPT_GGUF=prompt_enhancer/sulphur_prompt_enhancer_model-q8_0.gguf \
-PROMPT_MMPROJ=prompt_enhancer/mmproj-BF16.gguf \
-bash install_linux.sh
+export HF_TOKEN=...
 ```
 
-## Windows llama.cpp Compatibility Setup
+Every repo and filename can be overridden before running the installer:
 
-Run:
-
-```bat
-setup_llm.bat
+```bash
+I2V_REPO=... I2V_CHECKPOINT=... bash install_linux.sh
+T2V_REPO=... T2V_CHECKPOINT=... bash install_linux.sh
+LTX_MODEL_ROOT=/mnt/models/ltx bash install_linux.sh
 ```
 
-The Windows helper remains as a compatibility path. It downloads a Windows llama.cpp release, installs `llama-server.exe` under `tools/llama.cpp/`, downloads the selected GGUF and mmproj files to `models/llm/`, and writes those choices to the console settings database. For the no-external-service path, use embedded mode with `llama-cpp-python`.
+## Prompt LLM
 
-Useful variants:
+Default mode is `embedded`: the backend loads the GGUF directly with `llama-cpp-python`.
 
-```bat
-set HF_TOKEN=hf_xxx
-setup_llm.bat
-```
+The Settings panel supports:
 
-```bat
-set CC_LLM_REPO=SulphurAI/Sulphur-2-base
-setup_llm.bat
-```
+- `embedded`: recommended local mode.
+- `managed`: starts a project-local `llama-server` process.
 
-```bat
-setup_llm.bat -Gguf https://huggingface.co/<repo>/resolve/main/model.gguf -Mmproj https://huggingface.co/<repo>/resolve/main/mmproj.gguf
-```
+`setup_llm.bat` remains available for Windows llama.cpp setup and GGUF/mmproj download.
 
-The intended default model is the SulphurAI Prompt Enhancer GGUF plus its matching mmproj. In embedded mode, it is loaded directly inside the backend process. For Sulphur Prompt Enhancer style, the backend sends only user text and optional image content. For generic VLMs, set `Prompt style` to `director` in Settings to enable the built-in director system prompt.
+## Render Rules
 
-External OpenAI-compatible endpoints are kept only for old/debug configurations and are not the normal product path.
-
-## Render Models
-
-External ComfyUI is optional. Without it, the project still works in local Mock render mode: upload image, generate/refine prompts, simulate progress, produce placeholder MP4s, and reuse history. Model detection does not require ComfyUI; `/api/models` scans `models/comfyui/` directly.
-
-For real LTX rendering, set the ComfyUI URL in Settings, default:
-
-```text
-http://127.0.0.1:8188
-```
-
-The default workflow templates require only these render-side files:
-
-- `checkpoints/10Eros_v1-fp8mixed_learned.safetensors`
-- `checkpoints/sulphur_dev_fp8mixed.safetensors`
-- `text_encoders/gemma_3_12B_it_fp8_scaled.safetensors`
-- `text_encoders/ltx-2.3_text_projection_bf16.safetensors`
-- `upscale_models/ltx-2.3-spatial-upscaler-x2-1.1.safetensors`
-- `vae/LTX2_audio_vae_bf16.safetensors`
-- `loras/ltx-2.3-22b-distilled-lora-1.1_fro90_ceil72_condsafe.safetensors`
-
-Important: do not stack a distill LoRA on top of a complete distilled checkpoint. The UI and backend validate this and will show a conflict error.
-
-On Linux, `install_linux.sh` downloads only those files. You can set `COMFY_MODEL_ROOT` to a shared model storage path before running the script.
-
-## Workflow Templates
-
-Templates live in:
-
-```text
-backend/workflows/i2v_10eros.json
-backend/workflows/t2v_sulphur.json
-backend/workflows/node_map.json
-```
-
-To use your own workflow:
-
-1. In ComfyUI, export with `Save (API format)`.
-2. Put the JSON file in `backend/workflows/`.
-3. Edit `node_map.json` and set the `template` field.
-4. Map logical inputs such as `positive_prompt`, `negative_prompt`, `seed`, `width`, `height`, `frames`, `fps`, `image`, `checkpoint`, model loaders, and pass progress nodes to your node ids and input names.
-
-`decode_tile` can switch the mapped decode node to `VAEDecodeTiled` for low-VRAM recovery. Parameters not present in a stock workflow can be mapped to custom nodes as needed.
-
-## Outputs And History
-
-- Uploaded reference images: `uploads/`
-- Rendered videos: `outputs/`
-- Thumbnails: `outputs/thumbs/`
-- Settings and history: `data/console.db`
-
-The history modal can play finished renders, inspect prompt snapshots, reuse parameters, and delete records.
+- I2V requires a reference image upload.
+- T2V uses the selected T2V checkpoint.
+- Resolution must be divisible by 64 for the two-stage LTX pipeline.
+- Frame count is snapped to `8n + 1`.
+- Distill LoRA and a complete distilled checkpoint are mutually exclusive.
+- Additional LoRAs selected in the Pipeline panel are passed to both render stages.
+- The UI strips `[0-12s]` timestamps before rendering by default; this is configurable in Settings.
 
 ## Troubleshooting
 
-- LLM light red: in embedded mode, run `install_linux.sh` or install `llama-cpp-python`, verify GGUF/mmproj paths in Settings, then click `load / restart llm`.
-- Pipeline lists are empty: the app scanned `models/comfyui/` and did not find local render models. Run `bash install_linux.sh` or place the required files under the category folders listed above.
-- Render status is yellow/red: local Mock render still allows full UI testing. Configure an external ComfyUI URL only if you want real LTX rendering through ComfyUI.
-- VRAM/OOM: set `decode tile` to `512`, lower resolution, or use fp8/quantized model variants.
-- Frontend missing: run `npm install` and `npm run build` inside `frontend/`, or rerun `start.bat`.
-- Gated Hugging Face models: set `HF_TOKEN` before running `install_linux.sh` or `setup_llm.bat`.
+- Render status is red: open the Pipeline panel and read the missing model list, or run `bash install_linux.sh`.
+- LLM status is red: install/download the GGUF and mmproj, then click the LLM status light or load/restart in Settings.
+- CUDA out of memory: lower resolution first. On Linux you can also try `LTX_OFFLOAD=cpu bash start_linux.sh`.
+- Hugging Face download returns 401: accept the model license if required and set `HF_TOKEN`.
+- Frontend missing: install Node.js/npm and run `npm install && npm run build` inside `frontend/`.
+
+## Cloudflare Tunnel
+
+`start_linux.sh --tunnel` downloads `cloudflared` if needed and starts a free temporary `https://*.trycloudflare.com` tunnel to the local WebUI.
+
+Useful options:
+
+```bash
+bash start_linux.sh --host 127.0.0.1 --port 7860
+bash start_linux.sh --tunnel --no-browser
+CC_PORT=9000 bash start_linux.sh --tunnel
+```

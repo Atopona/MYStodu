@@ -5,7 +5,6 @@ import { GhostButton, ProgressBar, SectionTitle } from "./ui";
 import {
   IconCamera,
   IconDownload,
-  IconExternal,
   IconFilm,
   IconHistory,
   IconSpark,
@@ -117,10 +116,6 @@ export default function RenderBay() {
   const pass2Done = job?.status === "done";
   const previewActive = running && !!s.preview;
 
-  const openComfy = () => {
-    window.open(s.comfy.url || "http://127.0.0.1:8188", "_blank");
-  };
-
   return (
     <div className="h-full flex flex-col px-3 py-3 gap-3 overflow-y-auto">
       <div className="flex items-center justify-between gap-2">
@@ -130,7 +125,7 @@ export default function RenderBay() {
           </div>
           <div className="text-nano text-dim truncate tabular-nums">
             {running
-              ? `${job!.status} · job ${job!.id}${job?.mock ? " · mock" : ""}`
+              ? `${job!.status} · job ${job!.id}`
               : job?.status === "done"
               ? `done · job ${job.id}`
               : "空闲 · job —"}
@@ -144,9 +139,6 @@ export default function RenderBay() {
           )}
           <GhostButton onClick={() => s.set({ showHistory: true })} title="历史记录">
             <span className="inline-flex items-center gap-1"><IconHistory size={10} /> 历史</span>
-          </GhostButton>
-          <GhostButton onClick={openComfy} title="在新标签页打开 ComfyUI">
-            <span className="inline-flex items-center gap-1"><IconExternal size={10} /> 打开 ComfyUI</span>
           </GhostButton>
         </div>
       </div>

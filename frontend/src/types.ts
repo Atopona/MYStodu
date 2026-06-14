@@ -63,7 +63,6 @@ export interface Resolution {
 }
 
 export interface Settings {
-  comfy_url: string;
   llm_mode: "embedded" | "managed" | "external";
   llama_server_path: string;
   llm_host: string;
@@ -79,14 +78,11 @@ export interface Settings {
   prompt_style: "auto" | "sulphur" | "director";
   keep_timestamps: boolean;
   negative_prompt: string;
-  mock_llm: "auto" | "on" | "off";
-  mock_comfy: "auto" | "on" | "off";
 }
 
 export interface ServiceStatus {
   state: string;
   detail?: string;
-  mock?: boolean;
   url?: string;
   gguf?: string;
   mmproj?: string;
@@ -105,7 +101,6 @@ export interface JobState {
   videoUrl?: string;
   thumbUrl?: string;
   seed?: number;
-  mock?: boolean;
 }
 
 export interface LogEntry {
@@ -132,7 +127,7 @@ export interface HistoryItem {
     height?: number;
     fps?: number;
     duration?: number;
-    mock?: boolean;
+    renderer?: string;
     words?: number;
   };
 }

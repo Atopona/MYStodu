@@ -1,11 +1,10 @@
 """Local model directory scanner.
 
-The UI should reflect files that are actually present on disk. It must not
-invent example model names just because ComfyUI is unavailable.
+The UI reflects files that are actually present on disk and never invents
+example model names when the renderer is unavailable.
 """
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Dict, Iterable, List
 
@@ -23,6 +22,17 @@ def _files(root: str) -> List[Path]:
         if path.is_file() and path.suffix.lower() in MODEL_EXTS:
             out.append(path)
     return sorted(out, key=lambda p: str(p).lower())
+
+
+def _all_files(root: str) -> List[Path]:
+    base = Path(root)
+    if not base.exists():
+        return []
+    return sorted((p for p in base.rglob("*") if p.is_file()), key=lambda p: str(p).lower())
+
+
+def _render_roots() -> List[str]:
+    return [root for root in config.RENDER_MODEL_DIRS if root]
 
 
 def _names(paths: Iterable[Path]) -> List[str]:
@@ -43,7 +53,7 @@ def _contains(path: Path, *needles: str) -> bool:
 
 
 def _missing(required: List[Dict[str, str]], roots: List[str]) -> List[Dict[str, str]]:
-    existing = {p.name.lower() for root in roots for p in _files(root)}
+    existing = {p.name.lower() for root in roots for p in _all_files(root)}
     missing = []
     for item in required:
         name = model_manifest.basename(item["filename"])
@@ -53,8 +63,8 @@ def _missing(required: List[Dict[str, str]], roots: List[str]) -> List[Dict[str,
 
 
 def scan_render_models() -> dict:
-    root = config.COMFY_MODEL_DIR
-    files = _files(root)
+    roots = _render_roots()
+    files = [p for root in roots for p in _files(root)]
 
     loras = [p for p in files if _contains(p, "lora")]
     upscalers = [p for p in files if _contains(p, "upscaler", "upscale_models")]
@@ -77,7 +87,7 @@ def scan_render_models() -> dict:
     ]
 
     required = [model_manifest.public_entry(i) for i in model_manifest.required_render_files()]
-    missing = _missing(model_manifest.required_render_files(), [root])
+    missing = _missing(model_manifest.required_render_files(), roots)
 
     return {
         "text_encoders": _names(text_encoders),
@@ -88,11 +98,36 @@ def scan_render_models() -> dict:
         "checkpoints": _names(checkpoints),
         "loras": _names(loras),
         "source": "local",
-        "model_root": root,
+        "model_root": " ; ".join(roots),
         "required": required,
         "missing_required": missing,
         "ready": not missing,
     }
+
+
+def find_render_model(name: str) -> Path | None:
+    if not name:
+        return None
+    path = Path(name)
+    if path.is_absolute() and path.exists():
+        return path
+    for root in _render_roots():
+        for item in _files(root):
+            if item.name.lower() == name.lower():
+                return item
+    return None
+
+
+def find_required_render_file(key: str) -> Path | None:
+    entry = next((item for item in model_manifest.required_render_files() if item["key"] == key), None)
+    if entry is None:
+        return None
+    name = model_manifest.basename(entry["filename"]).lower()
+    for root in _render_roots():
+        for item in _all_files(root):
+            if item.name.lower() == name:
+                return item
+    return None
 
 
 def scan_llm_models() -> dict:

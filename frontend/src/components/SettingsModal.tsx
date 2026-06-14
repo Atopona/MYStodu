@@ -117,20 +117,10 @@ export default function SettingsModal() {
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 grid grid-cols-2 gap-x-5 gap-y-3.5">
-          {/* ---- ComfyUI ---- */}
+          {/* ---- Local LTX Render ---- */}
           <div className="col-span-2">
-            <SectionTitle label="ComfyUI / 可选真实渲染" hint="不安装也可用 Mock 完整演示" />
+            <SectionTitle label="Local LTX Render / 本地渲染" hint="官方 LTX-2.3 两阶段管线" />
           </div>
-          <Field label="ComfyUI URL / 地址">
-            <input className={inputCls} value={f.comfy_url} onChange={(e) => up({ comfy_url: e.target.value })} />
-          </Field>
-          <Field label="Mock ComfyUI / 离线渲染" hint="auto = 不可达时自动模拟">
-            <Select
-              value={f.mock_comfy}
-              onChange={(v) => up({ mock_comfy: v as Settings["mock_comfy"] })}
-              options={["auto", "on", "off"]}
-            />
-          </Field>
           <Field label="Render timestamps / 渲染时间戳" hint="默认剥离 [0-12s]">
             <Select
               value={f.keep_timestamps ? "keep" : "strip"}
@@ -158,13 +148,6 @@ export default function SettingsModal() {
               value={f.llm_mode}
               onChange={(v) => up({ llm_mode: v as Settings["llm_mode"] })}
               options={["embedded", "managed"]}
-            />
-          </Field>
-          <Field label="Mock LLM / 离线提示词" hint="auto = 未加载模型时自动模拟">
-            <Select
-              value={f.mock_llm}
-              onChange={(v) => up({ mock_llm: v as Settings["mock_llm"] })}
-              options={["auto", "on", "off"]}
             />
           </Field>
 
@@ -314,7 +297,7 @@ export default function SettingsModal() {
 
         <div className="px-4 py-3 border-t border-line flex justify-between items-center">
           <span className="text-nano text-dim/70">
-            提示：Linux 运行 install_linux.sh 可安装内置 LLM 依赖并下载模型；ComfyUI 不安装也能用 Mock。
+            提示：Linux 运行 install_linux.sh 可安装本地 LLM、官方 LTX 推理依赖并下载必需模型。
           </span>
           <div className="flex gap-2">
             <GhostButton onClick={close}>取消</GhostButton>

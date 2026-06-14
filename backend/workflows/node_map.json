@@ -1,0 +1,81 @@
+{
+  "_doc": [
+    "Maps logical console fields onto ComfyUI workflow nodes (API format templates).",
+    "To use your own workflow: export it via ComfyUI 'Save (API format)', drop the JSON",
+    "into backend/workflows/, point 'template' at it and update the node ids below.",
+    "Each binding is {\"node\": \"<id>\", \"input\": \"<input name>\"} or a list of bindings.",
+    "Keys without a binding are ignored (e.g. distil visual/audio weights need the",
+    "TenStrip 10S node pack — bind them to its inputs if you have it installed).",
+    "'lora_chain' splices user LoRAs (LoraLoaderModelOnly) into each pass's MODEL edge.",
+    "'decode_node' is switched to VAEDecodeTiled with tile_size when decode tile > 0.",
+    "'progress_nodes' attributes sampler progress to PASS 1 / PASS 2 cards.",
+    "Console params currently not bound to stock nodes (bind to your pack as needed):",
+    "frame_overlap, transition_fade, midscene_guide, carry_i2v_guides, midscene_anchor,",
+    "distil*_visual, distil*_audio, text_projection, preview_vae."
+  ],
+  "i2v": {
+    "template": "i2v_10eros.json",
+    "inputs": {
+      "positive_prompt": { "node": "6", "input": "text" },
+      "negative_prompt": { "node": "7", "input": "text" },
+      "seed": [
+        { "node": "30", "input": "noise_seed" },
+        { "node": "40", "input": "noise_seed" }
+      ],
+      "width": { "node": "12", "input": "width" },
+      "height": { "node": "12", "input": "height" },
+      "frames": { "node": "12", "input": "length" },
+      "fps": [
+        { "node": "8", "input": "frame_rate" },
+        { "node": "55", "input": "fps" }
+      ],
+      "image": { "node": "10", "input": "image" },
+      "checkpoint": { "node": "1", "input": "ckpt_name" },
+      "text_encoder": { "node": "2", "input": "clip_name" },
+      "upscaler": { "node": "41", "input": "model_name" },
+      "audio_vae": { "node": "4", "input": "vae_name" },
+      "distil1_model": { "node": "15", "input": "lora_name" },
+      "distil1_str": { "node": "15", "input": "strength_model" },
+      "distil2_model": { "node": "45", "input": "lora_name" },
+      "distil2_str": { "node": "45", "input": "strength_model" }
+    },
+    "lora_chain": [
+      { "from": ["15", 0], "consumers": [{ "node": "30", "input": "model" }] },
+      { "from": ["45", 0], "consumers": [{ "node": "40", "input": "model" }] }
+    ],
+    "decode_node": "50",
+    "progress_nodes": { "pass1": ["30"], "pass2": ["40", "50", "52"] }
+  },
+  "t2v": {
+    "template": "t2v_sulphur.json",
+    "inputs": {
+      "positive_prompt": { "node": "6", "input": "text" },
+      "negative_prompt": { "node": "7", "input": "text" },
+      "seed": [
+        { "node": "30", "input": "noise_seed" },
+        { "node": "40", "input": "noise_seed" }
+      ],
+      "width": { "node": "70", "input": "width" },
+      "height": { "node": "70", "input": "height" },
+      "frames": { "node": "70", "input": "length" },
+      "fps": [
+        { "node": "8", "input": "frame_rate" },
+        { "node": "55", "input": "fps" }
+      ],
+      "checkpoint": { "node": "1", "input": "ckpt_name" },
+      "text_encoder": { "node": "2", "input": "clip_name" },
+      "upscaler": { "node": "41", "input": "model_name" },
+      "audio_vae": { "node": "4", "input": "vae_name" },
+      "distil1_model": { "node": "15", "input": "lora_name" },
+      "distil1_str": { "node": "15", "input": "strength_model" },
+      "distil2_model": { "node": "45", "input": "lora_name" },
+      "distil2_str": { "node": "45", "input": "strength_model" }
+    },
+    "lora_chain": [
+      { "from": ["15", 0], "consumers": [{ "node": "30", "input": "model" }] },
+      { "from": ["45", 0], "consumers": [{ "node": "40", "input": "model" }] }
+    ],
+    "decode_node": "50",
+    "progress_nodes": { "pass1": ["30"], "pass2": ["40", "50", "52"] }
+  }
+}

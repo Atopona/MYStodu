@@ -55,6 +55,27 @@ AUDIO_VAE_MODEL="${AUDIO_VAE_MODEL:-LTX2_audio_vae_bf16.safetensors}"
 SKIP_MODEL_DOWNLOAD="${SKIP_MODEL_DOWNLOAD:-0}"
 export LLM_DIR LTX_MODEL_ROOT
 
+usage() {
+  cat <<'EOF'
+Cinematic Console Linux installer
+
+Usage:
+  bash install_linux.sh [options]
+
+Options:
+  --hf-token TOKEN            Hugging Face token for gated/private repos
+  --hf-token=TOKEN            Same as above
+  --no-hf-token-prompt        Do not prompt for a token when HF_TOKEN is unset
+  --skip-model-download       Install code/dependencies only
+  --help                      Show this help
+
+Examples:
+  bash install_linux.sh --hf-token hf_xxx
+  bash install_linux.sh --skip-model-download
+  GEMMA_AUX_REPO=google/gemma-3-12b-it bash install_linux.sh --hf-token hf_xxx
+EOF
+}
+
 log() {
   printf '\033[1;32m[install_linux]\033[0m %s\n' "$*"
 }
@@ -69,6 +90,41 @@ need_cmd() {
     exit 1
   fi
 }
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --hf-token)
+      [ $# -ge 2 ] || { echo "--hf-token needs a value" >&2; exit 1; }
+      HF_TOKEN="$2"
+      export HF_TOKEN
+      shift 2
+      ;;
+    --hf-token=*)
+      HF_TOKEN="${1#--hf-token=}"
+      export HF_TOKEN
+      shift
+      ;;
+    --no-hf-token-prompt)
+      HF_TOKEN_PROMPT=0
+      export HF_TOKEN_PROMPT
+      shift
+      ;;
+    --skip-model-download)
+      SKIP_MODEL_DOWNLOAD=1
+      export SKIP_MODEL_DOWNLOAD
+      shift
+      ;;
+    --help|-h)
+      usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      usage >&2
+      exit 1
+      ;;
+  esac
+done
 
 need_cmd python3
 need_cmd curl

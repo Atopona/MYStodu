@@ -193,7 +193,7 @@ else
   log "using existing $LTX_DIR"
 fi
 if command -v nvidia-smi >/dev/null 2>&1; then
-  "$PIP" install --upgrade "torch~=2.7" torchaudio --index-url https://download.pytorch.org/whl/cu128
+  "$PIP" install --upgrade "torch~=2.7" torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
 fi
 "$PIP" install -e "$LTX_DIR/packages/ltx-core" -e "$LTX_DIR/packages/ltx-pipelines"
 
@@ -204,6 +204,7 @@ import sys
 
 required = [
     ("torch", "torch"),
+    ("torchvision", "torchvision"),
     ("torchaudio", "torchaudio"),
     ("transformers", "transformers"),
     ("safetensors", "safetensors"),

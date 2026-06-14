@@ -55,6 +55,7 @@ _PCT_RE = re.compile(r"(\d{1,3})%\|")
 _FRACTION_RE = re.compile(r"(\d+)\s*/\s*(\d+)")
 _REQUIRED_DEPENDENCIES = [
     ("torch", "torch"),
+    ("torchvision", "torchvision"),
     ("torchaudio", "torchaudio"),
     ("transformers", "transformers"),
     ("safetensors", "safetensors"),

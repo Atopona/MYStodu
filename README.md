@@ -97,7 +97,7 @@ The renderer uses the official Lightricks packages:
 
 - `ltx-core`
 - `ltx-pipelines`
-- PyTorch / torchaudio
+- PyTorch / torchvision / torchaudio
 - `av`
 - `openimageio`
 - `sentencepiece` / `protobuf` for local Gemma tokenizer loading
@@ -192,11 +192,11 @@ SulphurAI/Sulphur-2-base/prompt_enhancer_uncensored/prompt_enhancer_uncensored-q
 SulphurAI/Sulphur-2-base/prompt_enhancer_uncensored/mmproj-prompt_enhancer_uncensored.gguf
 ```
 
-`install_linux.sh` prompts for a Hugging Face token when run interactively.
-For non-interactive runs, or if a Hugging Face repository is gated/private, set:
+`install_linux.sh` accepts a Hugging Face token on the command line and also
+prompts for one when run interactively. For gated/private repositories:
 
 ```bash
-export HF_TOKEN=...
+bash install_linux.sh --hf-token hf_xxx
 ```
 
 Every repo and filename can be overridden before running the installer:
@@ -205,7 +205,7 @@ Every repo and filename can be overridden before running the installer:
 I2V_REPO=... I2V_CHECKPOINT=... bash install_linux.sh
 T2V_REPO=... T2V_CHECKPOINT=... bash install_linux.sh
 LTX_MODEL_ROOT=/mnt/models/ltx bash install_linux.sh
-GEMMA_AUX_REPO=google/gemma-3-12b-it GEMMA_CHAT_TEMPLATE=chat_template.json HF_TOKEN=... bash install_linux.sh
+GEMMA_AUX_REPO=google/gemma-3-12b-it GEMMA_CHAT_TEMPLATE=chat_template.json bash install_linux.sh --hf-token hf_xxx
 ```
 
 When `LTX_MODEL_ROOT` or `LLM_DIR` is set during installation, the installer writes

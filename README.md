@@ -246,6 +246,7 @@ The Settings panel supports:
 - GPU status is blocked: install/repair the NVIDIA driver and CUDA-enabled PyTorch. `python -m backend.ltx_diagnose` shows the detected torch/CUDA build and GPU memory.
 - LLM status is red: install/download the GGUF and mmproj, then click the LLM status light or load/restart in Settings.
 - CUDA out of memory: lower resolution first. On Linux you can also try `LTX_OFFLOAD=cpu bash start_linux.sh`.
+- `Tensor.item() cannot be called on meta tensors` during Gemma masking: update this project, then rerun `bash install_linux.sh --hf-token hf_xxx` so the render runner uses the patched split-Gemma device handling. If the error changes to `Gemma text encoder weights are incomplete`, delete the local text encoder file and let the installer redownload `Comfy-Org/ltx-2/split_files/text_encoders/gemma_3_12B_it_fp8_scaled.safetensors`.
 - Hugging Face download returns 401: accept the model license if required, then enter `HF_TOKEN` when `install_linux.sh` prompts or export it before running.
 - Frontend missing: install Node.js/npm and run `npm install && npm run build` inside `frontend/`.
 

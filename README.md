@@ -109,6 +109,8 @@ Useful Linux environment variables:
 HF_TOKEN=hf_xxx bash install_linux.sh
 SKIP_MODEL_DOWNLOAD=1 bash install_linux.sh
 PROMPT_REPO=SulphurAI/Sulphur-2-base bash install_linux.sh
+TEXT_ENCODER_REPO=Comfy-Org/ltx-2 bash install_linux.sh
+TEXT_PROJECTION_REPO=Kijai/LTX2.3_comfy bash install_linux.sh
 COMFY_MODEL_ROOT=/mnt/models/comfyui bash install_linux.sh
 DISTIL_REPO=TenStrip/LTX2.3_Distilled_Lora_1.1_Experiments bash install_linux.sh
 ```
@@ -121,6 +123,8 @@ Verified default Hugging Face sources:
 LLM GGUF:        SulphurAI/Sulphur-2-base/prompt_enhancer_uncensored/prompt_enhancer_uncensored-q8_0.gguf
 LLM mmproj:      SulphurAI/Sulphur-2-base/prompt_enhancer_uncensored/mmproj-prompt_enhancer_uncensored.gguf
 I2V checkpoint:  TenStrip/LTX2.3-10Eros/10Eros_v1-fp8mixed_learned.safetensors
+Text encoder:    Comfy-Org/ltx-2/split_files/text_encoders/gemma_3_12B_it_fp8_scaled.safetensors
+Text projection: Kijai/LTX2.3_comfy/text_encoders/ltx-2.3_text_projection_bf16.safetensors
 T2V checkpoint:  SulphurAI/Sulphur-2-base/sulphur_dev_fp8mixed.safetensors
 Spatial upscale: Lightricks/LTX-2.3/ltx-2.3-spatial-upscaler-x2-1.1.safetensors
 Audio VAE:       novoluz/ltx2_audio_vae_bf16/LTX2_audio_vae_bf16.safetensors
@@ -179,6 +183,8 @@ The default workflow templates require only these render-side files:
 
 - `checkpoints/10Eros_v1-fp8mixed_learned.safetensors`
 - `checkpoints/sulphur_dev_fp8mixed.safetensors`
+- `text_encoders/gemma_3_12B_it_fp8_scaled.safetensors`
+- `text_encoders/ltx-2.3_text_projection_bf16.safetensors`
 - `upscale_models/ltx-2.3-spatial-upscaler-x2-1.1.safetensors`
 - `vae/LTX2_audio_vae_bf16.safetensors`
 - `loras/ltx-2.3-22b-distilled-lora-1.1_fro90_ceil72_condsafe.safetensors`

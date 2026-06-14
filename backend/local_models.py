@@ -61,7 +61,10 @@ def scan_render_models() -> dict:
     audio_vaes = [p for p in files if _contains(p, "audio_vae", "vae")]
     preview_vaes = [p for p in files if _contains(p, "tae", "preview")]
     text_projections = [p for p in files if _contains(p, "projection", "text_projection")]
-    text_encoders = [p for p in files if _contains(p, "gemma", "clip", "t5", "text_encoder")]
+    text_encoders = [
+        p for p in files
+        if p not in text_projections and _contains(p, "gemma", "clip", "t5", "text_encoder")
+    ]
     checkpoints = [
         p for p in files
         if p.suffix.lower() == ".safetensors"

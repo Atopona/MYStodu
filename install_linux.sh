@@ -27,6 +27,10 @@ PROMPT_GGUF="${PROMPT_GGUF:-prompt_enhancer_uncensored/prompt_enhancer_uncensore
 PROMPT_MMPROJ="${PROMPT_MMPROJ:-prompt_enhancer_uncensored/mmproj-prompt_enhancer_uncensored.gguf}"
 BASE_REPO="${BASE_REPO:-Lightricks/LTX-2.3}"
 UPSCALER_MODEL="${UPSCALER_MODEL:-ltx-2.3-spatial-upscaler-x2-1.1.safetensors}"
+TEXT_ENCODER_REPO="${TEXT_ENCODER_REPO:-Comfy-Org/ltx-2}"
+TEXT_ENCODER_MODEL="${TEXT_ENCODER_MODEL:-split_files/text_encoders/gemma_3_12B_it_fp8_scaled.safetensors}"
+TEXT_PROJECTION_REPO="${TEXT_PROJECTION_REPO:-Kijai/LTX2.3_comfy}"
+TEXT_PROJECTION_MODEL="${TEXT_PROJECTION_MODEL:-text_encoders/ltx-2.3_text_projection_bf16.safetensors}"
 I2V_REPO="${I2V_REPO:-TenStrip/LTX2.3-10Eros}"
 I2V_CHECKPOINT="${I2V_CHECKPOINT:-10Eros_v1-fp8mixed_learned.safetensors}"
 T2V_REPO="${T2V_REPO:-SulphurAI/Sulphur-2-base}"
@@ -100,7 +104,7 @@ fi
 
 if [ "$SKIP_MODEL_DOWNLOAD" != "1" ]; then
   log "downloading required model files only"
-  export PROMPT_REPO PROMPT_GGUF PROMPT_MMPROJ BASE_REPO UPSCALER_MODEL I2V_REPO I2V_CHECKPOINT T2V_REPO T2V_CHECKPOINT DISTIL_REPO DISTIL_LORA AUDIO_VAE_REPO AUDIO_VAE_MODEL
+  export PROMPT_REPO PROMPT_GGUF PROMPT_MMPROJ BASE_REPO UPSCALER_MODEL TEXT_ENCODER_REPO TEXT_ENCODER_MODEL TEXT_PROJECTION_REPO TEXT_PROJECTION_MODEL I2V_REPO I2V_CHECKPOINT T2V_REPO T2V_CHECKPOINT DISTIL_REPO DISTIL_LORA AUDIO_VAE_REPO AUDIO_VAE_MODEL
   "$PY" - "$ROOT" "$LLM_DIR" "$COMFY_MODEL_ROOT" <<'PY'
 import os
 import shutil

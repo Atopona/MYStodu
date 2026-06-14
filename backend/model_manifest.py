@@ -50,6 +50,26 @@ def required_render_files() -> List[Dict[str, str]]:
             "filename": _env("I2V_CHECKPOINT", "10Eros_v1-fp8mixed_learned.safetensors"),
         },
         {
+            "key": "text_encoder",
+            "label": "Gemma 3 12B text encoder",
+            "category": "text_encoders",
+            "repo": _env("TEXT_ENCODER_REPO", "Comfy-Org/ltx-2"),
+            "filename": _env(
+                "TEXT_ENCODER_MODEL",
+                "split_files/text_encoders/gemma_3_12B_it_fp8_scaled.safetensors",
+            ),
+        },
+        {
+            "key": "text_projection",
+            "label": "LTX 2.3 text projection",
+            "category": "text_encoders",
+            "repo": _env("TEXT_PROJECTION_REPO", "Kijai/LTX2.3_comfy"),
+            "filename": _env(
+                "TEXT_PROJECTION_MODEL",
+                "text_encoders/ltx-2.3_text_projection_bf16.safetensors",
+            ),
+        },
+        {
             "key": "t2v_checkpoint",
             "label": "T2V Sulphur checkpoint",
             "category": "checkpoints",

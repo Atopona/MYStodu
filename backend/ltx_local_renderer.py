@@ -807,6 +807,7 @@ def build_job_spec(
         "video_vae": resolved.video_vae.name if resolved.video_vae is not None else "",
         "distil_lora": resolved.distil_lora.name if resolved.distil_lora is not None else "",
         "gemma_root": str(resolved.gemma_root),
+        "quantization": quantization or "auto",
     }
     return LocalRenderSpec(command=cmd, env=env, output_path=output_path, summary=summary)
 

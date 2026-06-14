@@ -36,7 +36,7 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--num-inference-steps", type=int, default=15)
     p.add_argument("--offload", choices=["none", "cpu", "disk"], default="none")
     p.add_argument("--max-batch-size", type=int, default=1)
-    p.add_argument("--quantization", choices=["fp8-cast", "fp8-scaled-mm"], default="")
+    p.add_argument("--quantization", choices=["auto", "none", "fp8-cast", "fp8-scaled-mm"], default="auto")
     p.add_argument("--image", nargs=4, action="append", metavar=("PATH", "FRAME", "STRENGTH", "CRF"), default=[])
     p.add_argument("--lora", nargs=2, action="append", metavar=("PATH", "STRENGTH"), default=[])
     return p
@@ -59,6 +59,31 @@ def _checkpoint_bundle(*paths: str) -> tuple[str, ...]:
             seen.add(key)
             out.append(resolved)
     return tuple(out)
+
+
+def _checkpoint_has_fp8_weights(path: str) -> bool:
+    """Return True when a safetensors checkpoint stores transformer FP8 weights."""
+    import torch
+    from safetensors import safe_open
+
+    fp8_names = {
+        name
+        for name in (
+            getattr(torch, "float8_e4m3fn", None),
+            getattr(torch, "float8_e5m2", None),
+        )
+        if name is not None
+    }
+    if not fp8_names:
+        return False
+
+    with safe_open(_existing(path), framework="pt", device="cpu") as handle:
+        for key in handle.keys():  # noqa: SIM118
+            if not key.endswith(".weight"):
+                continue
+            if handle.get_slice(key).get_dtype() in {"F8_E4M3", "F8_E5M2"}:
+                return True
+    return False
 
 
 def _deep_merge_config(left: dict, right: dict) -> dict:
@@ -432,10 +457,17 @@ def _run_inference(args: argparse.Namespace) -> None:
     _patch_split_video_vae_keys()
 
     quantization = None
-    if args.quantization:
+    quantization_name = args.quantization
+    if quantization_name == "auto":
+        if _checkpoint_has_fp8_weights(args.checkpoint_path):
+            quantization_name = "fp8-cast"
+            logging.info("Auto-enabled fp8-cast quantization for FP8 checkpoint %s", args.checkpoint_path)
+        else:
+            quantization_name = "none"
+    if quantization_name and quantization_name != "none":
         from ltx_pipelines.utils.quantization_factory import QuantizationKind
 
-        quantization = QuantizationKind(args.quantization).to_policy(checkpoint_path=_existing(args.checkpoint_path))
+        quantization = QuantizationKind(quantization_name).to_policy(checkpoint_path=_existing(args.checkpoint_path))
 
     checkpoint_paths = _checkpoint_bundle(
         args.checkpoint_path,
